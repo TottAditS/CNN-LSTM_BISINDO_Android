@@ -1,0 +1,42 @@
+# ══════════════════════════════════════════════════════════════
+# CNN-LSTM BISINDO Android — Requirements
+# ══════════════════════════════════════════════════════════════
+# Install semua (GPU CUDA 12.x) dengan satu perintah:
+#
+#   pip install -r requirements.txt
+#
+# ══════════════════════════════════════════════════════════════
+
+# ── Core Deep Learning (PyTorch — GPU CUDA 12.1) ──────────────
+# --extra-index-url memberitahu pip untuk cari torch versi CUDA
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.3.0+cu121
+torchvision==0.18.0+cu121
+
+# ── Computer Vision & MediaPipe ───────────────────────────────
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+
+# ── Numerics & Data ───────────────────────────────────────────
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0
+
+# ── Visualization ─────────────────────────────────────────────
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# ── ML Utilities ──────────────────────────────────────────────
+scikit-learn>=1.3.0
+tqdm>=4.65.0
+
+# ── Notebook ──────────────────────────────────────────────────
+jupyter>=1.0.0
+ipykernel>=6.0.0
+ipywidgets>=8.0.0
+
+# ── Model Export (Android via ONNX) ───────────────────────────
+onnx>=1.15.0
+onnxruntime>=1.17.0
+
+# ── Experiment Tracking ───────────────────────────────────────
+tensorboard>=2.13.0
