@@ -75,8 +75,8 @@ Input Sequence (30 frames × 224×224×3)
          ▼
 ┌────────────────────────────────────────────────────────┐
 │ 2. FEATURE EXTRACTION                                  │
-│    Mask R-CNN → Hand Segmentation per frame            │
-│    MediaPipe  → 21 Keypoints × 3 (x,y,z) × 2 tangan  │
+│    MediaPipe Hands → Palm Detection → 21 Keypoints    │
+│    × 3 (x,y,z) × 2 tangan = 126 features/frame       │
 │    Output: sequences (N, 30, 126)                     │
 └────────────────────────────────────────────────────────┘
          │
@@ -147,9 +147,9 @@ CNN-LSTM_BISINDO_Android/
 │
 ├── 📂 FeatureExtraction/            ← Step 2: Frame → Keypoint Sequences
 │   ├── Config/
+│   │   └── feature_config.py        ← Konfigurasi feature extraction
 │   ├── Scripts/
-│   │   ├── hand_segmentor.py        ← Mask R-CNN hand segmentation
-│   │   ├── keypoint_extractor.py    ← MediaPipe 21 keypoints
+│   │   ├── keypoint_extractor.py    ← MediaPipe → 21 keypoints per tangan
 │   │   └── sequence_builder.py      ← Build (N, 30, 126) sequences
 │   └── FeatureExtraction.ipynb
 │
@@ -226,8 +226,8 @@ CNN-LSTM_BISINDO_Android/
 |---|---|
 | Deep Learning | PyTorch 2.3.0 |
 | GPU | NVIDIA RTX 4060 (CUDA 12.1) |
-| Computer Vision | OpenCV, MediaPipe |
-| Hand Segmentation | Mask R-CNN (COCO pretrained) |
+| Computer Vision | OpenCV, Pillow |
+| Hand Keypoints | MediaPipe Hands |
 | Model Export | ONNX |
 | Android Inference | ONNX Runtime Mobile |
 | Android Camera | CameraX |
@@ -279,6 +279,7 @@ torch==2.3.0+cu121
 torchvision==0.18.0+cu121
 opencv-python>=4.8.0
 mediapipe>=0.10.0
+Pillow>=10.0.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
 onnx>=1.15.0
