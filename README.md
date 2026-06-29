@@ -67,33 +67,33 @@ Input Sequence (30 frames × 224×224×3)
          ▼
 ┌────────────────────────────────────────────────────────┐
 │ 1. PRE-PROCESSING                                      │
-│    Frame Extraction → Blur Filter → Resize (224×224)  │
-│    Uniform Sampling (15fps) → Augmentation → Padding  │
-│    Output: train/val/test.npz                         │
+│    Frame Extraction → Blur Filter → Resize (224×224)   │
+│    Uniform Sampling (15fps) → Augmentation → Padding   │
+│    Output: train/val/test.npz                          │
 └────────────────────────────────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────────────────────────┐
 │ 2. FEATURE EXTRACTION                                  │
-│    MediaPipe Hands → Palm Detection → 21 Keypoints    │
-│    × 3 (x,y,z) × 2 tangan = 126 features/frame       │
-│    Output: sequences (N, 30, 126)                     │
+│    MediaPipe Hands → Palm Detection → 21 Keypoints     │
+│    × 3 (x,y,z) × 2 tangan = 126 features/frame         │
+│    Output: sequences (N, 30, 126)                      │
 └────────────────────────────────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────────────────────────┐
 │ 3. MODEL TRAINING & EVALUATION                         │
-│    CNN-Spatial Attention-LSTM-Attention (proposed)    │
-│    vs Transformer (comparison)                        │
-│    Metrics: Accuracy, F1, Precision, Recall,          │
-│             Inference Time, Model Size, FLOPs         │
+│    CNN-Spatial Attention-LSTM-Attention (proposed)     │
+│    vs Transformer (comparison)                         │
+│    Metrics: Accuracy, F1, Precision, Recall,           │
+│             Inference Time, Model Size, FLOPs          │
 └────────────────────────────────────────────────────────┘
          │
          ▼
 ┌────────────────────────────────────────────────────────┐
 │ 4. EXPORT & DEPLOYMENT                                 │
-│    PyTorch → ONNX → Android APK                       │
-│    Real-time inference via CameraX + MediaPipe        │
+│    PyTorch → ONNX → Android APK                        │
+│    Real-time inference via CameraX + MediaPipe         │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -107,7 +107,7 @@ Input Sequence (30 frames × 224×224×3)
 │  │                    │  │
 │  │   [LIVE CAMERA]    │  │
 │  │                    │  │
-│  │  🖐️  hand tracked  │  │
+│  │    hand tracked    │  │
 │  │  • landmark dots • │  │
 │  └────────────────────┘  │
 │                          │
@@ -119,7 +119,7 @@ Input Sequence (30 frames × 224×224×3)
 │  History:                │
 │  HALO | APA | KABAR      │
 │                          │
-│     [ 🔴 RECORD ]        │
+│     [  RECORD  ]         │
 └──────────────────────────┘
 ```
 
