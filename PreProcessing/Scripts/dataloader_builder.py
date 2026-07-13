@@ -59,9 +59,7 @@ def split_manifest(
 
         n_val = int(len(remaining) * val_ratio / (train_ratio + val_ratio))
         val_data = remaining[:n_val]
-        val_originals = remaining[:n_val]
         train_originals = remaining[n_val:]
-        train_data = train_originals + augmented
 
         logger.info(f"Split by signer: test_signers={test_signers}")
 
@@ -90,15 +88,17 @@ def split_manifest(
             val_data        += items[n_train:n_train + n_val]
             test_data       += items[n_train + n_val:]
 
-        # Augmented hanya untuk train
-        train_data = train_originals + augmented
+    # Filter augmented agar hanya menyertakan augmentasi dari train_originals (mencegah kebocoran data)
+    train_video_names = {x["video_name"] for x in train_originals}
+    train_augmented = [x for x in augmented if x["video_name"] in train_video_names]
+    train_data = train_originals + train_augmented
 
     if shuffle:
         rng = np.random.default_rng(seed + 1)
         rng.shuffle(train_data)
 
     logger.info(f"Split result:")
-    logger.info(f"  Train : {len(train_data)} ({len(train_originals)} orig + {len(augmented)} aug)")
+    logger.info(f"  Train : {len(train_data)} ({len(train_originals)} orig + {len(train_augmented)} aug)")
     logger.info(f"  Val   : {len(val_data)}")
     logger.info(f"  Test  : {len(test_data)}")
 

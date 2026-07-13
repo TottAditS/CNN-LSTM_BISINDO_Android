@@ -3,7 +3,6 @@ FeatureExtraction/Config/feature_config.py
 Auto-detect ROOT dan konfigurasi semua setting untuk feature extraction.
 """
 
-import os
 from pathlib import Path
 
 

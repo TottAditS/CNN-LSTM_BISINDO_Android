@@ -52,7 +52,6 @@ DATASET_CONFIGS = {
         "label_type"    : "numeric",
         "label_map"     : None,   # None = auto (label_0, label_1, ...)
                                   # Atau: {0: "halo", 1: "terima kasih", ...}
-        "fps_target"    : 30,
         "description"   : "BISINDO Word-Level, 40 kata, 4 signer, 10 sample",
     },
 

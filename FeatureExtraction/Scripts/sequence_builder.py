@@ -15,6 +15,7 @@ Strategi panjang sequence:
 """
 
 import sys
+import json
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -24,7 +25,7 @@ from collections import defaultdict
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from FeatureExtraction.Config.feature_config import (
     PROCESSED_DIR, KEYPOINT_DIR, SEQUENCE_DIR,
-    NUM_SIGNERS, NUM_LABELS, SAMPLES_PER_LABEL_PER_SIGNER,
+    NUM_LABELS,
     SEQUENCE_LENGTH, FEATURES_PER_FRAME,
     CENTER_CROP_TEMPORAL, PAD_VALUE,
     TRAIN_RATIO, VAL_RATIO, TEST_RATIO, RANDOM_SEED,
@@ -96,39 +97,43 @@ class SequenceBuilder:
 
     def _load_all_keypoints(self) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         """
-        Load semua keypoint yang tersedia.
-        
-        Returns:
-            X   : (N, T_raw, 126) — sebelum temporal resize
-            y   : (N,) int64 — label index
-            ids : list of video identifier strings
+        Load semua keypoint yang tersedia secara dinamis menggunakan frame_manifest.json.
         """
         X_list    = []
         y_list    = []
         id_list   = []
         missing   = 0
 
+        manifest_path = PROCESSED_DIR / "frame_manifest.json"
+        if not manifest_path.exists():
+            print(f"[SequenceBuilder] ERROR: Manifest tidak ditemukan di {manifest_path}")
+            return [], np.array([]), []
+
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+
         print("[SequenceBuilder] Loading keypoint files...")
 
-        for signer_id in range(NUM_SIGNERS):
-            for label_id in range(NUM_LABELS):
-                for sample_id in range(1, SAMPLES_PER_LABEL_PER_SIGNER + 1):
+        for item in manifest:
+            signer_id = item["signer_idx"]
+            label_id  = item["label_idx"]
+            sample_id = item["sample_idx"]
 
-                    kpt_path = get_keypoint_path(signer_id, label_id, sample_id)
-                    vid_name = f"signer{signer_id}_label{label_id}_sample{sample_id}"
+            kpt_path = get_keypoint_path(signer_id, label_id, sample_id)
+            vid_name = Path(item["video_name"]).stem
 
-                    if not kpt_path.exists():
-                        missing += 1
-                        continue
+            if not kpt_path.exists():
+                missing += 1
+                continue
 
-                    kpts = np.load(kpt_path)  # (T, 126)
-                    if kpts.ndim != 2 or kpts.shape[1] != FEATURES_PER_FRAME:
-                        print(f"  [SKIP] Shape tidak valid {kpt_path}: {kpts.shape}")
-                        continue
+            kpts = np.load(kpt_path)  # (T, 126)
+            if kpts.ndim != 2 or kpts.shape[1] != FEATURES_PER_FRAME:
+                print(f"  [SKIP] Shape tidak valid {kpt_path}: {kpts.shape}")
+                continue
 
-                    X_list.append(kpts)
-                    y_list.append(label_id)
-                    id_list.append(vid_name)
+            X_list.append(kpts)
+            y_list.append(label_id)
+            id_list.append(vid_name)
 
         if missing > 0:
             print(f"  [WARN] {missing} file keypoint tidak ditemukan.")

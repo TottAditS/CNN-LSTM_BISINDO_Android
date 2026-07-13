@@ -4,7 +4,7 @@
 
 ```
 preprocessing/
-├── 01_preprocessing.ipynb        ← Notebook utama (jalankan ini)
+├── PreProcess.ipynb              ← Notebook utama (jalankan ini)
 ├── config/
 │   └── dataset_config.py         ← Konfigurasi dataset & preprocessing
 └── scripts/
@@ -27,7 +27,7 @@ Edit `config/dataset_config.py`:
 
 ### 2. Jalankan notebook
 
-Buka `01_preprocessing.ipynb` dan jalankan semua cell dari atas ke bawah.
+Buka `PreProcess.ipynb` dan jalankan semua cell dari atas ke bawah.
 
 ### 3. Menambah dataset baru
 

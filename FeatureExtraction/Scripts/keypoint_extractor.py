@@ -14,6 +14,7 @@ Tidak perlu preprocessing segmentasi tambahan.
 """
 
 import sys
+import json
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -24,7 +25,6 @@ import mediapipe as mp
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from FeatureExtraction.Config.feature_config import (
     PROCESSED_DIR, KEYPOINT_DIR,
-    NUM_SIGNERS, NUM_LABELS, SAMPLES_PER_LABEL_PER_SIGNER,
     FEATURES_PER_FRAME, NUM_HANDS, KEYPOINTS_PER_HAND, COORDS_PER_KEYPOINT,
     MP_STATIC_IMAGE_MODE, MP_MAX_NUM_HANDS,
     MP_MIN_DETECTION_CONFIDENCE, MP_MIN_TRACKING_CONFIDENCE,
@@ -139,60 +139,65 @@ class KeypointExtractor:
         return keypoints
 
     def process_all(self, skip_existing: bool = True):
-        """Proses semua 1600 video dan simpan keypoint .npy."""
+        """Proses semua video secara dinamis menggunakan frame_manifest.json."""
         create_output_dirs()
 
-        total     = NUM_SIGNERS * NUM_LABELS * SAMPLES_PER_LABEL_PER_SIGNER
+        manifest_path = PROCESSED_DIR / "frame_manifest.json"
+        if not manifest_path.exists():
+            print(f"[KeypointExtractor] ERROR: Manifest tidak ditemukan di {manifest_path}")
+            print("Pastikan PreProcessing/PreProcess.ipynb sudah dijalankan terlebih dahulu.")
+            return
+
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+
+        total     = len(manifest)
         processed = 0
         skipped   = 0
         errors    = 0
         low_detect = 0
 
-        iterator = tqdm(total=total, desc="Ekstraksi keypoint", unit="video")
+        iterator = tqdm(manifest, desc="Ekstraksi keypoint", unit="video")
 
-        for signer_id in range(NUM_SIGNERS):
-            for label_id in range(NUM_LABELS):
-                for sample_id in range(1, SAMPLES_PER_LABEL_PER_SIGNER + 1):
+        for item in iterator:
+            signer_id = item["signer_idx"]
+            label_id  = item["label_idx"]
+            sample_id = item["sample_idx"]
 
-                    kpt_path = get_keypoint_path(signer_id, label_id, sample_id)
-                    vid_name = f"signer{signer_id}_label{label_id}_sample{sample_id}"
+            kpt_path = get_keypoint_path(signer_id, label_id, sample_id)
+            vid_name = Path(item["video_name"]).stem  # "signerX_labelY_sampleZ"
 
-                    if skip_existing and kpt_path.exists():
-                        skipped += 1
-                        iterator.update(1)
-                        continue
+            if skip_existing and kpt_path.exists():
+                skipped += 1
+                continue
 
-                    frame_npy = PROCESSED_DIR / f"{vid_name}_frames.npy"
-                    if not frame_npy.exists():
-                        if VERBOSE:
-                            print(f"  [SKIP] Frame tidak ada: {frame_npy}")
-                        errors += 1
-                        iterator.update(1)
-                        continue
+            frame_npy = Path(item["frames_npy"])
+            if not frame_npy.exists():
+                if VERBOSE:
+                    print(f"  [SKIP] Frame tidak ada: {frame_npy}")
+                errors += 1
+                continue
 
-                    try:
-                        frames    = np.load(frame_npy)      # (T, H, W, 3)
-                        keypoints = self.extract_sequence(frames)
+            try:
+                frames    = np.load(frame_npy)      # (T, H, W, 3)
+                keypoints = self.extract_sequence(frames)
 
-                        # Cek kualitas deteksi
-                        detected = np.any(keypoints != 0, axis=1).sum()
-                        rate     = detected / len(keypoints)
-                        if rate < 0.5:
-                            low_detect += 1
-                            if VERBOSE:
-                                print(f"  [WARN] {vid_name}: deteksi rendah "
-                                      f"({rate*100:.0f}% frame)")
+                # Cek kualitas deteksi
+                detected = np.any(keypoints != 0, axis=1).sum()
+                rate     = detected / len(keypoints)
+                if rate < 0.5:
+                    low_detect += 1
+                    if VERBOSE:
+                        print(f"  [WARN] {vid_name}: deteksi rendah "
+                              f"({rate*100:.0f}% frame)")
 
-                        np.save(kpt_path, keypoints)
-                        processed += 1
+                np.save(kpt_path, keypoints)
+                processed += 1
 
-                    except Exception as e:
-                        print(f"  [ERROR] {vid_name}: {e}")
-                        errors += 1
+            except Exception as e:
+                print(f"  [ERROR] {vid_name}: {e}")
+                errors += 1
 
-                    iterator.update(1)
-
-        iterator.close()
         self.close()
 
         print(f"\n[KeypointExtractor] Selesai:")
