@@ -198,7 +198,9 @@ class KeypointExtractor:
                 print(f"  [ERROR] {vid_name}: {e}")
                 errors += 1
 
-        self.close()
+        # Tidak close() di sini -- extractor ini instance milik caller (notebook/script
+        # lain manggil extractor.close() sendiri setelah process_all() selesai). Double
+        # close() akan raise ValueError dari mediapipe ("_graph which is already None").
 
         print(f"\n[KeypointExtractor] Selesai:")
         print(f"  Diproses   : {processed}")

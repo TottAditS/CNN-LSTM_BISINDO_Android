@@ -106,13 +106,14 @@ class Trainer:
         )
         
         # 6. Scheduler (ReduceLROnPlateau)
+        # Catatan: parameter verbose= sudah dihapus dari PyTorch (ada di versi lama,
+        # dibuang di versi baru) -- LR saat ini dicetak manual tiap epoch di fit() lewat current_lr.
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
             mode="min" if LR_SCHEDULER_CONFIG["monitor"] == "val_loss" else "max",
             factor=LR_SCHEDULER_CONFIG["factor"],
             patience=LR_SCHEDULER_CONFIG["patience"],
             min_lr=LR_SCHEDULER_CONFIG["min_lr"],
-            verbose=True
         )
         
         # 7. Early Stopping variables
@@ -229,7 +230,7 @@ class Trainer:
                         "val_loss": val_loss,
                         "model_config": MODEL_CONFIG,
                     }, checkpoint_path)
-                    print(f"  🏆 New best model saved to {checkpoint_path.name} (Val Acc: {val_acc*100:.2f}%)")
+                    print(f"  [BEST] New best model saved to {checkpoint_path.name} (Val Acc: {val_acc*100:.2f}%)")
             else:
                 self.patience_counter += 1
                 

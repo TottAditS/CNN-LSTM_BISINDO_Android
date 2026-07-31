@@ -312,55 +312,105 @@ CNN-LSTM_BISINDO_Android/
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Cara Menjalankan Pipeline (Step-by-Step)
 
-### 1. Clone & Install
-Gunakan Python 3.11 (3.10-3.12 juga aman — lihat `Requirements.txt` untuk detail kompatibilitas).
+> ✅ **Sudah divalidasi end-to-end**: seluruh urutan di bawah ini (Step 0-6) sudah dijalankan
+> sungguhan — bukan cuma dibaca kodenya — memakai dataset sintetis kecil (video dummy), kode asli
+> repo ini, dan environment asli (Python 3.11, PyTorch 2.11.0+cu128, mediapipe 0.10.21) di GPU
+> NVIDIA RTX 50-series. Semua tahap (PreProcessing → FeatureExtraction → training kedua model →
+> evaluasi kedua model → tabel perbandingan) berhasil selesai tanpa error di akhir validasi ini.
+
+### Step 0 — Setup Environment
+
+Buat environment khusus project ini (jangan pakai environment lain yang sudah terisi banyak
+package — rawan bentrok versi):
 ```bash
-git clone https://github.com/username/CNN-LSTM_BISINDO_Android.git
+conda create -n bisindo python=3.11 -y
+conda activate bisindo
 cd CNN-LSTM_BISINDO_Android
 pip install -r Requirements.txt
 ```
 
-Verifikasi PyTorch benar-benar melihat GPU sebelum lanjut (penting kalau GPU kamu Blackwell/RTX 50-series —
-lihat catatan CUDA 12.8 di `Requirements.txt`):
-```bash
-python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
-```
+> ⚠️ Kalau `conda activate` tidak mengubah prompt jadi `(bisindo) ...`, jalankan `conda init
+> powershell` sekali lalu **tutup-buka ulang terminal** (bukan cuma tab baru).
 
-### 2. Siapkan Dataset
-Letakkan video dataset di:
+Verifikasi environment benar-benar siap (jalankan ketiganya, semua harus sukses tanpa error):
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
+python -c "import mediapipe as mp; print(mp.solutions.hands.Hands())"
+python -c "import cv2; print(cv2.__version__, cv2.VideoCapture)"
+```
+GPU harus `True` + nama GPU kamu muncul. Kalau salah satu di atas error, **jangan lanjut** —
+lihat bagian "Requirements" di bawah, atau `Requirements.txt` langsung untuk catatan
+troubleshooting lengkap (mediapipe/numpy/opencv sengaja dipin ke versi tertentu, ada
+penjelasannya di komentar file itu).
+
+> ⚠️ **Jangan install ulang package manapun** (`pip install ...`) di luar `Requirements.txt`
+> setelah ini — termasuk jangan jalankan cell notebook manapun yang isinya `!pip install ...`.
+> Menaikkan versi `numpy`/`opencv`/`mediapipe` secara terpisah akan membentur pin yang sudah
+> disusun supaya kompatibel satu sama lain, dan bisa merusak `cv2`/`mediapipe` yang sudah jalan.
+
+### Step 1 — Siapkan Dataset
+Letakkan video di `Datasets/WLBisindo/`, format nama `signer{N}_label{N}_sample{N}.mp4`:
 ```
 Datasets/WLBisindo/signer0_label0_sample1.mp4
                    signer0_label0_sample2.mp4
                    ...
 ```
+Path ini otomatis terdeteksi oleh `PreProcessing/Config/dataset_config.py` — tidak perlu edit apapun.
 
-### 3. Jalankan Preprocessing
+### Step 2 — PreProcessing (extract frame mentah)
 ```bash
 cd PreProcessing
 jupyter notebook PreProcess.ipynb
 ```
+Jalankan semua cell dari atas. Output: `Datasets/WLBisindo_Processed/frames/` + `frame_manifest.json`.
+Untuk 1600 video asli, tahap ini butuh waktu tergantung jumlah & panjang video (bukan MediaPipe,
+jadi relatif cepat — didominasi baca/resize video).
 
-### 4. Feature Extraction (khusus CNNsa-BiLSTM — keypoint, split, augmentasi)
+### Step 3 — Feature Extraction (khusus CNNsa-BiLSTM: keypoint MediaPipe, split, augmentasi)
 ```bash
 cd FeatureExtraction
 jupyter notebook FeatureExtraction.ipynb
 ```
+Step 1 di notebook ini (ekstraksi keypoint MediaPipe) ~30-60 menit untuk 1600 video asli (CPU-only,
+lihat catatan MediaPipe di README). Step 2 (split + augmentasi) ~1-5 menit. Output:
+`Datasets/WLBisindo_Features/sequences/{train,val,test}_sequences.npz`.
 
-### 5. Training CNNsa-BiLSTM (proposed model)
+### Step 4 — Training CNNsa-BiLSTM (proposed model) + evaluasi
 ```bash
 cd Training/CNNsaBiLSTM
 jupyter notebook Train.ipynb
 ```
+Training loop (GPU otomatis kalau tersedia) → checkpoint terbaik → evaluasi test split → plot
+loss/accuracy → confusion matrix. Output: `Training/Output/cnnsa_bilstm/checkpoints/`,
+`Training/Output/results/evaluation_summary.json`.
 
-### 6. Training MViTv2 (baseline transformer — cukup butuh Step 3, tidak perlu Step 4)
+### Step 5 — Training MViTv2 (baseline transformer) + evaluasi
+Tidak perlu Step 3 — cukup Step 2 (baca `frames.npy` langsung):
 ```bash
 cd Training/MViTv2
 jupyter notebook TrainMViT.ipynb
 ```
-Cell terakhir `TrainMViT.ipynb` memanggil `comparator.compare_models()` untuk cetak tabel
-perbandingan vs CNNsa-BiLSTM (jalankan setelah Step 5 juga selesai dievaluasi).
+Jauh lebih berat/lambat per-epoch dari Step 4 (model video 34.5M parameter, bukan keypoint).
+Bobot pretrained Kinetics-400 (~140MB) di-download otomatis sekali di run pertama (tersimpan di
+cache `~/.cache/torch/hub/`, tidak perlu download ulang di run berikutnya). Output:
+`Training/Output/mvit_v2/checkpoints/`, `Training/Output/results/transformer_evaluation_summary.json`.
+
+### Step 6 — Bandingkan Kedua Model
+Cell terakhir `TrainMViT.ipynb` otomatis memanggil ini setelah Step 4 & 5 selesai. Bisa juga
+dijalankan manual kapan saja setelah kedua model dievaluasi:
+```bash
+python Training/Scripts/comparator.py
+```
+Mencetak tabel accuracy / F1 / latensi CPU / ukuran model side-by-side, dibaca dari
+`Training/Output/results/evaluation_summary.json` + `transformer_evaluation_summary.json`.
+
+### Belum Ada — Langkah Selanjutnya (di luar pipeline ini)
+Export ke ONNX dan aplikasi Android **belum diimplementasikan** (folder `Export/` belum dibuat).
+Setelah CNNsa-BiLSTM dievaluasi dan hasilnya memuaskan, langkah berikutnya adalah export
+checkpoint ke ONNX lalu integrasi ke project Android (CameraX + ONNX Runtime Mobile + MediaPipe
+on-device) — belum ada kodenya di repo ini.
 
 ---
 

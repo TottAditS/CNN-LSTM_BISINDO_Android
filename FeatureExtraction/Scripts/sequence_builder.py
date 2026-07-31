@@ -234,14 +234,14 @@ class SequenceBuilder:
                 label_map = np.array([LABEL_MAP[i] for i in range(NUM_LABELS)]),
             )
             n = len(data["y"])
-            print(f"  [{split_name:5s}] {n:5d} sequences → {out_path}")
+            print(f"  [{split_name:5s}] {n:5d} sequences -> {out_path}")
 
-        print("\n[SequenceBuilder] ✅ Selesai!")
+        print("\n[SequenceBuilder] Selesai!")
         self._print_stats()
 
     def _print_stats(self):
         """Print statistik dari .npz yang sudah ada."""
-        print("\n─── Statistik Sequences ───────────────────────────────────────")
+        print("\n--- Statistik Sequences ---------------------------------------")
         for split in ["train", "val", "test"]:
             path = get_sequence_output_path(split)
             if path.exists():
@@ -249,7 +249,7 @@ class SequenceBuilder:
                 X, y = data["X"], data["y"]
                 print(f"  {split:5s}: X={X.shape}, y={y.shape}, "
                       f"labels={np.unique(y).shape[0]}")
-        print("────────────────────────────────────────────────────────────────")
+        print("-----------------------------------------------------------------")
 
 
 # ─── VERIFY ──────────────────────────────────────────────────────────────────

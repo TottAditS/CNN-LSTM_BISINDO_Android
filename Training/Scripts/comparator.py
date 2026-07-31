@@ -62,7 +62,7 @@ def compare_models():
             elif "mb" in key:
                 print(f"{key:<25} | {val1:21.2f} MB | {val2:21.2f} MB")
     else:
-        print("\n💡 Petunjuk:")
+        print("\n[Petunjuk]:")
         print("  Salah satu/kedua model belum dievaluasi. Jalankan:")
         print("  - Training/CNNsaBiLSTM/Train.ipynb  -> tulis evaluation_summary.json")
         print("  - Training/MViTv2/TrainMViT.ipynb   -> tulis transformer_evaluation_summary.json")

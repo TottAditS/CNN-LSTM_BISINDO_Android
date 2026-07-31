@@ -213,7 +213,7 @@ class MViTTrainer:
                         "val_loss": val_loss,
                         "model_config": MODEL_CONFIG,
                     }, checkpoint_path)
-                    print(f"  \U0001f3c6 New best model saved to {checkpoint_path.name} (Val Acc: {val_acc*100:.2f}%)")
+                    print(f"  [BEST] New best model saved to {checkpoint_path.name} (Val Acc: {val_acc*100:.2f}%)")
             else:
                 self.patience_counter += 1
 

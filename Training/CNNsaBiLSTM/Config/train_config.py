@@ -127,7 +127,7 @@ def verify_data_exists() -> bool:
         for m in missing:
             print(m)
         return False
-    print("[TrainConfig] ✅ Semua file sequence ditemukan.")
+    print("[TrainConfig] Semua file sequence ditemukan.")
     return True
 
 

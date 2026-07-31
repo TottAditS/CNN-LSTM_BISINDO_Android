@@ -133,7 +133,7 @@ def verify_data_exists() -> bool:
         print(f"  {FRAME_MANIFEST}")
         print("  Jalankan PreProcessing/PreProcess.ipynb terlebih dahulu.")
         return False
-    print("[MViTConfig] ✅ frame_manifest.json ditemukan.")
+    print("[MViTConfig] frame_manifest.json ditemukan.")
     return True
 
 
