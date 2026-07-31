@@ -3,6 +3,9 @@
 # Training outputs (checkpoints, logs, evaluation results) — auto-generated, bisa besar (>100MB)
 /Training/Output/
 
+# Export outputs (file .onnx / .onnx.data) — auto-generated, bisa besar (mvit_v2.onnx.data ~140MB)
+/Export/Output/
+
 # Python
 __pycache__/
 *.pyc

@@ -84,6 +84,13 @@ ipywidgets>=8.0.0
 # ── Model Export (Android via ONNX) ───────────────────────────
 onnx>=1.17.0
 onnxruntime>=1.20.0
+# onnxscript WAJIB untuk export MViTv2 (Export/Scripts/export_mvit_v2.py) — model itu
+# butuh exporter ONNX baru (torch.onnx.export(..., dynamo=True)), bukan legacy. Exporter
+# legacy menghasilkan model yang "sukses" di-export tapi GAGAL dijalankan di ONNX Runtime
+# ("Loop subgraph input 0 has unknown shape") karena pooling-attention MViT. CNNsa-BiLSTM
+# tidak butuh ini (masih pakai exporter legacy, sudah tervalidasi). Detail lengkap ada di
+# komentar Export/Config/export_config.py.
+onnxscript>=0.7.0
 
 # ── Experiment Tracking ───────────────────────────────────────
 # DIBATASI <2.21 — versi 2.21+ menaikkan syarat protobuf ke >=6.31,

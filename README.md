@@ -117,11 +117,20 @@ Input Keypoints (30 frames × 126 features)
          │
          ▼
 ┌──────────────────────────────────────────────────────────┐
-│ 4. EXPORT & DEPLOYMENT (CNNsa-BiLSTM saja)                │
-│    PyTorch → ONNX → Android APK                          │
-│    Real-time inference via CameraX + MediaPipe           │
-│    (MViTv2 >131MB — baseline pembanding riset saja,       │
-│     bukan kandidat deploy mobile)                         │
+│ 4. EXPORT KE ONNX ✅ (kedua model, PC saja)                │
+│    PyTorch → ONNX, validasi output PyTorch vs ONNX RT     │
+│    Notebook: Export/ExportModels.ipynb                    │
+│    cnnsa_bilstm.onnx (14.6MB)  — kandidat Android          │
+│    mvit_v2.onnx (132MB)        — pembanding riset saja     │
+└──────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ 5. DEPLOYMENT ANDROID (belum diimplementasi)               │
+│    cnnsa_bilstm.onnx → Android APK                        │
+│    Real-time inference via CameraX + MediaPipe on-device  │
+│    (MViTv2 tidak dipakai — terlalu besar/lambat untuk      │
+│     mobile, lihat bagian Model Evaluation)                 │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -212,7 +221,15 @@ CNN-LSTM_BISINDO_Android/
 │   │   └── TrainMViT.ipynb             ← Notebook controller
 │   └── Training Setup.md
 │
-├── 📂 Export/                          ← Step 4: PyTorch → ONNX (belum diimplementasi)
+├── 📂 Export/                          ← Step 4: PyTorch → ONNX (kedua model, PC saja)
+│   ├── Config/export_config.py         ← Path checkpoint/output, opset, shape input per model
+│   ├── Scripts/
+│   │   ├── export_cnnsa_bilstm.py      ← Export CNNsa-BiLSTM -> ONNX (legacy exporter)
+│   │   ├── export_mvit_v2.py           ← Export MViTv2 -> ONNX (exporter baru, dynamo=True)
+│   │   └── validate_onnx.py            ← Bandingkan output PyTorch vs ONNX Runtime
+│   ├── ExportModels.ipynb              ← Notebook controller
+│   ├── Export Setup.md
+│   └── Output/onnx/                    ← cnnsa_bilstm.onnx, mvit_v2.onnx(.data) — auto-generated
 │
 └── Requirements.txt
 ```
@@ -277,17 +294,33 @@ CNN-LSTM_BISINDO_Android/
 
 ---
 
-## 📈 Model Evaluation (Belum Dijalankan)
+## 📈 Model Evaluation
 
-| Metrik | CNNsa-BiLSTM (Proposed) |
-|---|---|
-| Accuracy | - |
-| F1-Score (weighted) | - |
-| Inference Time CPU | - |
-| Model Size (MB) | - |
-| Android Compatible | ✅ |
+Hasil aktual di test split dataset WLBisindo (1600 video asli, split signer-dependent 70/15/15,
+video val/test identik untuk kedua model):
 
-> *Hasil akan diisi setelah eksperimen selesai*
+| Metrik | CNNsa-BiLSTM (Proposed) | MViTv2 (Baseline) |
+|---|---|---|
+| Accuracy | **94.53%** | 99.22% |
+| F1-Score (weighted) | 94.51% | 99.22% |
+| Precision (weighted) | 94.85% | 99.31% |
+| Recall (weighted) | 94.53% | 99.22% |
+| Inference Time (CPU) | **3.24 ms/sequence** | 400.07 ms/clip |
+| Model Size | **43.94 MB** | 262.26 MB |
+| Total Parameters | 3.84 juta | 34.25 juta |
+| Android Compatible | ✅ | ❌ (ukuran & latensi jauh di luar budget mobile) |
+
+> 📌 **Target awal tercapai**: CNNsa-BiLSTM mencapai akurasi >90% (94.53%) dengan latency
+> <100ms (3.24ms) — sesuai target di bagian Overview.
+>
+> **Trade-off akurasi vs efisiensi**: MViTv2 unggul akurasi (+4.7 poin) karena model 9x lebih
+> besar dan melihat raw video langsung (bukan keypoint), sejalan dengan hasil paper referensi
+> (MViTv2 menang di setting signer-dependent). Tapi CNNsa-BiLSTM **~123x lebih cepat inferensi**
+> dan **~6x lebih kecil** — inilah alasan utama CNNsa-BiLSTM yang dipilih untuk deployment
+> Android, bukan MViTv2 yang jauh di luar budget model mobile.
+>
+> CNNsa-BiLSTM: training 34 epoch (early stopping dari max 100), ~48 detik di RTX 5060.
+> MViTv2: training 30 epoch penuh (fine-tune dari Kinetics-400 pretrained), ~36 menit di RTX 5060.
 
 ---
 
@@ -406,11 +439,21 @@ python Training/Scripts/comparator.py
 Mencetak tabel accuracy / F1 / latensi CPU / ukuran model side-by-side, dibaca dari
 `Training/Output/results/evaluation_summary.json` + `transformer_evaluation_summary.json`.
 
+### Step 7 — Export ke ONNX
+```bash
+cd Export
+jupyter notebook ExportModels.ipynb
+```
+Export kedua checkpoint ke ONNX + validasi otomatis (bandingkan output PyTorch vs ONNX Runtime
+pakai sample test asli). Detail lengkap (kenapa dua model butuh exporter ONNX yang beda, kenapa
+validasi CPU bukan GPU, dst) ada di `Export/Export Setup.md`. Output: `Export/Output/onnx/`.
+
 ### Belum Ada — Langkah Selanjutnya (di luar pipeline ini)
-Export ke ONNX dan aplikasi Android **belum diimplementasikan** (folder `Export/` belum dibuat).
-Setelah CNNsa-BiLSTM dievaluasi dan hasilnya memuaskan, langkah berikutnya adalah export
-checkpoint ke ONNX lalu integrasi ke project Android (CameraX + ONNX Runtime Mobile + MediaPipe
-on-device) — belum ada kodenya di repo ini.
+Aplikasi Android **belum diimplementasikan**. Setelah `cnnsa_bilstm.onnx` di-export & tervalidasi
+(Step 7), langkah berikutnya adalah integrasi ke project Android baru (CameraX + ONNX Runtime
+Mobile + MediaPipe Hands on-device) — belum ada kodenya di repo ini. `mvit_v2.onnx` **tidak**
+diintegrasikan ke Android (terlalu besar/lambat untuk mobile), cuma untuk kelengkapan
+dokumentasi/pembanding.
 
 ---
 
@@ -465,6 +508,8 @@ Thesis Project — [Nama Universitas]
 
 ---
 
-> ⚠️ **Status**: Project sedang dalam tahap pengembangan aktif. Pipeline PreProcessing, FeatureExtraction,
-> dan Training (CNNsa-BiLSTM + baseline MViTv2, termasuk script perbandingan) sudah selesai dibuat secara
-> kode — **belum pernah dijalankan end-to-end** pada dataset asli. Export ke ONNX/Android belum diimplementasi.
+> ✅ **Status**: Pipeline lengkap — PreProcessing → FeatureExtraction → Training (CNNsa-BiLSTM +
+> baseline MViTv2) → Evaluasi → Perbandingan → **Export ke ONNX** — **sudah dijalankan
+> end-to-end di dataset asli (1600 video)** dan hasilnya sudah ada (lihat bagian Model
+> Evaluation & `Export/Export Setup.md`). Aplikasi Android **belum diimplementasikan** — itu
+> langkah berikutnya.
