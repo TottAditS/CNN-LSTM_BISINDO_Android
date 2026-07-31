@@ -45,14 +45,14 @@ DATASET_CONFIGS = {
         "raw_video_dir" : _raw("WLBisindo"),
         "output_dir"    : _processed("WLBisindo"),
         "file_pattern"  : "signer{s}_label{l}_sample{n}.mp4",
-        "num_signers"   : 4,
-        "num_labels"    : 40,
-        "num_samples"   : 10,
+        "num_signers"   : 5,       # signer0-signer4 (signer0 baru punya 12/32 label)
+        "num_labels"    : 32,      # label0-label31 yang benar-benar ada di dataset saat ini
+        "num_samples"   : None,    # bervariasi: 10 atau 15 sample per (signer, label)
         "total_videos"  : 1600,
         "label_type"    : "numeric",
         "label_map"     : None,   # None = auto (label_0, label_1, ...)
                                   # Atau: {0: "halo", 1: "terima kasih", ...}
-        "description"   : "BISINDO Word-Level, 40 kata, 4 signer, 10 sample",
+        "description"   : "BISINDO Word-Level, 32 kata, 5 signer, 10-15 sample",
     },
 
     # ── Dataset 2 (contoh, uncomment jika ada) ────────────────────────────
@@ -86,36 +86,12 @@ PREPROCESSING_CONFIG = {
         "min_frames"  : 10,           # Video < min_frames di-skip
     },
 
-    "augmentation": {
-        "enabled"            : True,
-        "techniques"         : [
-            "horizontal_flip",
-            "brightness",
-            "contrast",
-            "rotation",
-            "zoom",
-        ],
-        "horizontal_flip_prob" : 0.5,
-        "brightness_range"     : (0.7, 1.3),
-        "contrast_range"       : (0.8, 1.2),
-        "rotation_range"       : (-10, 10),
-        "zoom_range"           : (0.9, 1.1),
-        "augment_multiplier"   : 2,   # 1 original + 2 augmented = 3x data
-    },
-
-    "sequence": {
-        "fixed_length"  : 30,          # Semua sequence → N frame
-        "padding_mode"  : "zero",      # 'zero' atau 'repeat_last'
-        "truncate_mode" : "center",    # 'start', 'end', 'center'
-    },
-
+    # Catatan: augmentasi & split train/val/test TIDAK lagi dilakukan di sini.
+    # PreProcessing hanya extract frame mentah. Augmentasi (flip/rotate/zoom)
+    # dan split dataset sekarang dilakukan di FeatureExtraction pada level
+    # keypoint (lihat FeatureExtraction/Config/feature_config.py -> AUGMENTATION_CONFIG),
+    # karena model final memakai keypoint MediaPipe, bukan raw pixel frame.
     "dataloader": {
-        "train_ratio"         : 0.7,
-        "val_ratio"           : 0.15,
-        "test_ratio"          : 0.15,
-        "shuffle"             : True,
-        "random_seed"         : 42,
-        "save_format"         : "npz",
         "save_frames_as_images": False,  # True = simpan .jpg per frame (debug)
     },
 }

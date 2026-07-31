@@ -1,12 +1,18 @@
 """
-Training/Scripts/evaluator.py
-===========================
-Script untuk mengevaluasi model yang sudah dilatih menggunakan test split.
+Training/MViTv2/Scripts/mvit_evaluator.py
+============================================
+Script untuk mengevaluasi MViTv2 yang sudah di-fine-tune, menggunakan test split.
 - Mengalkulasi metrik: Accuracy, Precision, Recall, F1 (weighted & per-class)
 - Membuat & menyimpan Confusion Matrix (seaborn heatmap)
-- Menghitung waktu inferensi per sequence (CPU benchmark)
+- Menghitung waktu inferensi per clip (CPU benchmark)
 - Menghitung ukuran model (MB) dan jumlah parameter
-- Menyimpan ringkasan evaluasi sebagai JSON
+- Menyimpan ringkasan evaluasi sebagai "transformer_evaluation_summary.json" ke
+  RESULTS_DIR (shared) — path yang SAMA yang dibaca Training/Scripts/comparator.py,
+  jadi comparator.py tidak perlu diubah sama sekali.
+
+Catatan: benchmark CPU di sini murni untuk tabel perbandingan riset (skripsi),
+BUKAN klaim MViTv2 layak deploy ke Android — model ini >131MB dan jauh di atas
+budget model mobile, beda dengan CNNsa-BiLSTM yang memang didesain untuk itu.
 """
 
 import sys
@@ -18,128 +24,116 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score, precision_score, recall_score
 
-# Setup path agar bisa import modul dari root
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from Training.Config.train_config import (
-    TEST_NPZ, MODEL_CONFIG, CHECKPOINT_DIR, CHECKPOINT_CONFIG, RESULTS_DIR,
-    create_output_dirs
+from Training.MViTv2.Config.mvit_config import (
+    MODEL_CONFIG, CHECKPOINT_DIR, CHECKPOINT_CONFIG, RESULTS_DIR,
+    CLIP_LENGTH, FRAME_SIZE,
+    create_output_dirs,
 )
-from Training.Scripts.trainer import KeypointDataset
-from Training.Models.cnnsa_bilstm import CNNsaBiLSTM
+from Training.MViTv2.Models.mvit_v2 import build_mvit_v2
+from Training.MViTv2.Scripts.mvit_dataset import build_mvit_datasets
 
 
-class Evaluator:
+class MViTEvaluator:
     def __init__(self, model_path: Path):
         self.model_path = model_path
-        self.device = torch.device("cpu") # Evaluasi performa CPU untuk simulasi Android
-        
+        self.device = torch.device("cpu")  # Evaluasi performa CPU untuk tabel perbandingan
+
         create_output_dirs()
-        
-        # Load test dataset
-        print("\n[Evaluator] Loading test dataset...")
-        self.test_dataset = KeypointDataset(TEST_NPZ)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=32, shuffle=False)
+
+        print("\n[MViTEvaluator] Loading test dataset...")
+        _, _, self.test_dataset = build_mvit_datasets()
+        self.test_loader = DataLoader(self.test_dataset, batch_size=2, shuffle=False)
         print(f"  Test samples: {len(self.test_dataset)}")
-        
-        # Load label map
-        data = np.load(TEST_NPZ, allow_pickle=True)
-        self.label_map = list(data["label_map"]) if "label_map" in data else [f"label_{i}" for i in range(MODEL_CONFIG["num_classes"])]
-        
-        # Initialize & load model
-        print("\n[Evaluator] Loading trained model on CPU...")
+
+        self.label_map = [f"label_{i}" for i in range(MODEL_CONFIG["num_classes"])]
+
+        print("\n[MViTEvaluator] Loading trained model on CPU...")
         checkpoint = torch.load(self.model_path, map_location=self.device)
-        
-        self.model = CNNsaBiLSTM(
-            input_size=MODEL_CONFIG["input_size"],
-            feature_dim=MODEL_CONFIG["feature_dim"],
-            hidden_size=MODEL_CONFIG["hidden_size"],
-            num_layers=MODEL_CONFIG["num_layers"],
+
+        # pretrained=False -- bobot sesungguhnya datang dari checkpoint hasil fine-tune,
+        # bukan dari Kinetics-400 lagi (hemat waktu, tidak perlu download ulang).
+        self.model = build_mvit_v2(
             num_classes=MODEL_CONFIG["num_classes"],
+            freeze_until_block=MODEL_CONFIG["freeze_until_block"],
+            pretrained=False,
             dropout=MODEL_CONFIG["dropout"],
-            attn_reduction=MODEL_CONFIG["attn_reduction"]
         )
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(self.device)
         self.model.eval()
-        
+
     def get_model_size_mb(self) -> float:
-        """Hitung ukuran file model checkpoint dalam MB."""
         return self.model_path.stat().st_size / (1024 * 1024)
-        
-    def count_parameters(self) -> tuple[int, int]:
-        """Hitung total parameter dan parameter yang dilatih."""
+
+    def count_parameters(self):
         total = sum(p.numel() for p in self.model.parameters())
         trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         return total, trainable
 
-    def benchmark_inference(self, num_runs: int = 100) -> float:
-        """Benchmark latensi inferensi per sequence dalam milidetik di CPU."""
-        dummy_input = torch.randn(1, 30, 126).to(self.device)
-        
-        # Warmup
-        for _ in range(10):
+    def benchmark_inference(self, num_runs: int = 20) -> float:
+        """Benchmark latensi inferensi per clip dalam milidetik di CPU (lebih sedikit run
+        dari evaluator CNNsa-BiLSTM karena MViTv2 jauh lebih berat per forward pass)."""
+        dummy_input = torch.randn(1, 3, CLIP_LENGTH, *FRAME_SIZE).to(self.device)
+
+        for _ in range(3):
             _ = self.model(dummy_input)
-            
+
         times = []
         with torch.no_grad():
             for _ in range(num_runs):
                 t_start = time.perf_counter()
                 _ = self.model(dummy_input)
                 t_end = time.perf_counter()
-                times.append((t_end - t_start) * 1000) # ke milidetik
-                
+                times.append((t_end - t_start) * 1000)
+
         avg_ms = np.mean(times)
-        print(f"\n[Evaluator] Inference Time Benchmark (CPU):")
-        print(f"  Rata-rata: {avg_ms:.2f} ms per sequence (target Android: < 100ms)")
+        print(f"\n[MViTEvaluator] Inference Time Benchmark (CPU):")
+        print(f"  Rata-rata: {avg_ms:.2f} ms per clip")
         return float(avg_ms)
 
     def evaluate(self) -> dict:
-        print("\n[Evaluator] Running evaluation over test set...")
-        all_preds = []
-        all_targets = []
-        
+        print("\n[MViTEvaluator] Running evaluation over test set...")
+        all_preds, all_targets = [], []
+
         with torch.no_grad():
             for X_batch, y_batch in self.test_loader:
                 X_batch = X_batch.to(self.device)
-                outputs, _ = self.model(X_batch)
+                outputs = self.model(X_batch)
                 _, preds = torch.max(outputs, 1)
-                
+
                 all_preds.extend(preds.cpu().numpy())
                 all_targets.extend(y_batch.numpy())
-                
+
         all_preds = np.array(all_preds)
         all_targets = np.array(all_targets)
-        
-        # 1. Hitung metrik keseluruhan
+
         acc = accuracy_score(all_targets, all_preds)
         f1_w = f1_score(all_targets, all_preds, average="weighted")
         prec_w = precision_score(all_targets, all_preds, average="weighted")
         rec_w = recall_score(all_targets, all_preds, average="weighted")
-        
-        print(f"\n[Evaluator] Hasil Evaluasi Akhir:")
+
+        print(f"\n[MViTEvaluator] Hasil Evaluasi Akhir:")
         print(f"  Accuracy  : {acc*100:.2f}%")
         print(f"  F1-Score  : {f1_w*100:.2f}%")
         print(f"  Precision : {prec_w*100:.2f}%")
         print(f"  Recall    : {rec_w*100:.2f}%")
-        
-        # 2. Detail klasifikasi per kelas
+
         report = classification_report(
-            all_targets, all_preds, 
+            all_targets, all_preds,
             target_names=self.label_map,
             output_dict=True,
-            zero_division=0
+            zero_division=0,
         )
-        
-        # 3. Buat dan simpan Confusion Matrix
+
         cm = confusion_matrix(all_targets, all_preds)
         self._save_confusion_matrix_plot(cm)
-        
-        # 4. Model size & parameters
+
         total_p, trainable_p = self.count_parameters()
         model_size = self.get_model_size_mb()
         avg_infer_ms = self.benchmark_inference()
-        
+
         summary = {
             "accuracy": float(acc),
             "f1_weighted": float(f1_w),
@@ -149,38 +143,37 @@ class Evaluator:
             "total_params": int(total_p),
             "trainable_params": int(trainable_p),
             "avg_inference_cpu_ms": float(avg_infer_ms),
-            "classification_report": report
+            "classification_report": report,
         }
-        
-        # Simpan metrik ke JSON
-        summary_path = RESULTS_DIR / "evaluation_summary.json"
+
+        # Path SAMA yang dibaca Training/Scripts/comparator.py -- zero perubahan di comparator.py
+        summary_path = RESULTS_DIR / "transformer_evaluation_summary.json"
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
         print(f"  Summary disimpan ke: {summary_path}")
-        
+
         return summary
-        
+
     def _save_confusion_matrix_plot(self, cm: np.ndarray):
-        """Simpan plot confusion matrix menggunakan matplotlib & seaborn."""
         try:
             import matplotlib.pyplot as plt
             import seaborn as sns
-            
+
             plt.figure(figsize=(16, 14))
             sns.heatmap(
-                cm, 
-                annot=False, 
-                fmt="d", 
+                cm,
+                annot=False,
+                fmt="d",
                 cmap="Blues",
                 xticklabels=self.label_map,
-                yticklabels=self.label_map
+                yticklabels=self.label_map,
             )
-            plt.title("Confusion Matrix — CNNsa-BiLSTM (Test Set)")
+            plt.title("Confusion Matrix — MViTv2 (Test Set)")
             plt.xlabel("Predicted Labels")
             plt.ylabel("True Labels")
             plt.tight_layout()
-            
-            plot_path = RESULTS_DIR / "confusion_matrix.png"
+
+            plot_path = RESULTS_DIR / "confusion_matrix_mvit_v2.png"
             plt.savefig(plot_path, dpi=150)
             plt.close()
             print(f"  Confusion Matrix tersimpan ke: {plot_path}")
@@ -191,10 +184,10 @@ class Evaluator:
 def run_evaluation():
     checkpoint_path = CHECKPOINT_DIR / CHECKPOINT_CONFIG["filename"]
     if not checkpoint_path.exists():
-        print(f"[Evaluator] ERROR: Model checkpoint tidak ditemukan di {checkpoint_path}")
+        print(f"[MViTEvaluator] ERROR: Model checkpoint tidak ditemukan di {checkpoint_path}")
         return
-        
-    evaluator = Evaluator(checkpoint_path)
+
+    evaluator = MViTEvaluator(checkpoint_path)
     evaluator.evaluate()
 
 

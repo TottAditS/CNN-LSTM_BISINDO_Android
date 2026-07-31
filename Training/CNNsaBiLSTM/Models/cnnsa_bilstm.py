@@ -1,6 +1,6 @@
 """
-Training/Models/cnnsa_bilstm.py
-===============================
+Training/CNNsaBiLSTM/Models/cnnsa_bilstm.py
+=============================================
 Implementasi arsitektur CNNsa-BiLSTM menggunakan PyTorch.
 Didesain khusus untuk input keypoints MediaPipe (B, T, 126).
 """

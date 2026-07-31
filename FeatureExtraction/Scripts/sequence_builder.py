@@ -1,12 +1,18 @@
 """
 FeatureExtraction/Scripts/sequence_builder.py
 
-Step 3: Susun keypoint menjadi sequence fixed-length dan simpan sebagai .npz.
+Step 2: Split video ke train/val/test, augmentasi (khusus train), lalu
+susun keypoint menjadi sequence fixed-length dan simpan sebagai .npz.
 - Input : keypoint .npy per video (output keypoint_extractor.py)
-           split info dari PreProcessing (train/val/test)
 - Output: train_sequences.npz, val_sequences.npz, test_sequences.npz
            X shape: (N, SEQUENCE_LENGTH, FEATURES_PER_FRAME) = (N, 30, 126)
            y shape: (N,) int64 — label index
+
+Urutan proses per video (penting untuk mencegah data leakage):
+1. Split video (bukan sample) ke train/val/test, stratified per label.
+2. Augmentasi keypoint (flip/rotate/zoom) HANYA diterapkan ke video yang
+   masuk train — val/test selalu berisi keypoint asli (belum diaugmentasi).
+3. Pad/crop tiap sequence (asli maupun augmented) ke SEQUENCE_LENGTH.
 
 Strategi panjang sequence:
 - Jika T > SEQUENCE_LENGTH : ambil T frame tengah (center crop temporal)
@@ -18,9 +24,8 @@ import sys
 import json
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from tqdm import tqdm
-from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from FeatureExtraction.Config.feature_config import (
@@ -29,10 +34,13 @@ from FeatureExtraction.Config.feature_config import (
     SEQUENCE_LENGTH, FEATURES_PER_FRAME,
     CENTER_CROP_TEMPORAL, PAD_VALUE,
     TRAIN_RATIO, VAL_RATIO, TEST_RATIO, RANDOM_SEED,
+    AUGMENTATION_CONFIG,
     LABEL_MAP, VERBOSE,
     get_keypoint_path, get_sequence_output_path,
     create_output_dirs,
 )
+from FeatureExtraction.Scripts.keypoint_augmentor import augment_sequence
+from FeatureExtraction.Scripts.video_split import stratified_video_split
 
 
 # ─── TEMPORAL RESIZE ─────────────────────────────────────────────────────────
@@ -43,11 +51,11 @@ def pad_or_crop_sequence(
 ) -> np.ndarray:
     """
     Resize sequence temporal ke target_length.
-    
+
     Args:
         keypoints    : (T, F) float32
         target_length: panjang target (default: SEQUENCE_LENGTH = 30)
-        
+
     Returns:
         sequence: (target_length, F) float32
     """
@@ -76,45 +84,41 @@ def pad_or_crop_sequence(
 
 class SequenceBuilder:
     """
-    Load semua keypoint .npy, bagi ke train/val/test per label,
-    dan simpan sebagai .npz.
-    
-    Split strategy:
-    - Split per label, stratified berdasarkan signer
-    - signer0,1,2 majority ke train, signer3 ke val/test
-    - Atau random split jika tidak mau signer-based
-    
-    Default: random split (TRAIN_RATIO / VAL_RATIO / TEST_RATIO)
-    dengan seed = RANDOM_SEED — konsisten dengan PreProcessing.
-    
-    Catatan: Augmentasi sudah dilakukan di PreProcessing.
-    Augmented data sudah masuk ke train split.
-    Di sini kita hanya build sequences dari original (dan augmented jika ada).
+    Split video (level manifest, SEBELUM baca keypoint) ke train/val/test per label,
+    load keypoint tiap split, augmentasi video train, lalu simpan sebagai .npz.
+
+    Split strategy: stratified_video_split() dari FeatureExtraction/Scripts/video_split.py
+    (seed = RANDOM_SEED) — fungsi SHARED yang sama dipakai Training/MViTv2/Scripts/mvit_dataset.py
+    supaya video val/test CNNsa-BiLSTM dan MViTv2 identik (perbandingan apple-to-apple).
+    Split dilakukan pada MANIFEST (semua video mentah), bukan pada video yang keypoint-nya
+    sudah berhasil diekstrak — video dengan keypoint hilang/gagal baru difilter setelah split,
+    supaya hasil split tidak bergantung pada keberhasilan MediaPipe (yang notabene spesifik ke
+    pipeline ini, tidak relevan untuk pipeline video mentah MViTv2).
+
+    Augmentasi keypoint (flip/rotate/zoom) HANYA diterapkan ke video yang masuk train — val/test
+    selalu berisi keypoint asli (belum diaugmentasi), tidak ada leakage augmented data.
     """
 
     def __init__(self):
-        self.rng = np.random.RandomState(RANDOM_SEED)
+        self.aug_rng = np.random.default_rng(RANDOM_SEED)
 
-    def _load_all_keypoints(self) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-        """
-        Load semua keypoint yang tersedia secara dinamis menggunakan frame_manifest.json.
-        """
-        X_list    = []
-        y_list    = []
-        id_list   = []
-        missing   = 0
-
+    def _load_manifest(self) -> List[Dict]:
         manifest_path = PROCESSED_DIR / "frame_manifest.json"
         if not manifest_path.exists():
             print(f"[SequenceBuilder] ERROR: Manifest tidak ditemukan di {manifest_path}")
-            return [], np.array([]), []
-
+            return []
         with open(manifest_path, "r") as f:
-            manifest = json.load(f)
+            return json.load(f)
 
-        print("[SequenceBuilder] Loading keypoint files...")
+    def _load_keypoints_for_items(self, items: List[Dict]) -> Tuple[List[np.ndarray], List[int], List[str]]:
+        """
+        Load file keypoint .npy untuk sekumpulan item manifest (satu split).
+        Item yang keypoint-nya belum ada / gagal diekstrak MediaPipe di-skip (dengan warning).
+        """
+        X_list, y_list, id_list = [], [], []
+        missing = 0
 
-        for item in manifest:
+        for item in items:
             signer_id = item["signer_idx"]
             label_id  = item["label_idx"]
             sample_id = item["sample_idx"]
@@ -136,67 +140,50 @@ class SequenceBuilder:
             id_list.append(vid_name)
 
         if missing > 0:
-            print(f"  [WARN] {missing} file keypoint tidak ditemukan.")
+            print(f"  [WARN] {missing} file keypoint tidak ditemukan (di-skip dari split ini).")
 
-        print(f"  Total sequence loaded: {len(X_list)}")
-        return X_list, np.array(y_list, dtype=np.int64), id_list
+        return X_list, y_list, id_list
 
-    def _temporal_resize_all(self, X_list: List[np.ndarray]) -> np.ndarray:
+    def _build_split(self, split_name: str, X_list: List[np.ndarray], y: List[int],
+                      ids: List[str]) -> Dict:
         """
-        Terapkan pad_or_crop_sequence ke semua sequence.
-        
-        Returns:
-            X: (N, SEQUENCE_LENGTH, FEATURES_PER_FRAME) float32
+        Bangun array X/y/ids final untuk satu split.
+        Augmentasi hanya diterapkan jika split_name == "train".
         """
-        N = len(X_list)
-        X = np.zeros((N, SEQUENCE_LENGTH, FEATURES_PER_FRAME), dtype=np.float32)
-        for i, kpts in enumerate(X_list):
-            X[i] = pad_or_crop_sequence(kpts, SEQUENCE_LENGTH)
-        return X
+        aug_cfg = AUGMENTATION_CONFIG
+        do_augment = split_name == "train" and aug_cfg.get("enabled", False)
 
-    def _stratified_split(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        ids: List[str],
-    ) -> Tuple[Dict, Dict, Dict]:
-        """
-        Split data menjadi train / val / test secara stratified per label.
-        
-        Returns:
-            train, val, test: masing-masing dict {"X": ..., "y": ..., "ids": ...}
-        """
-        train_idx, val_idx, test_idx = [], [], []
+        X_out, y_out, id_out = [], [], []
 
-        label_to_indices = defaultdict(list)
-        for i, label in enumerate(y):
-            label_to_indices[label].append(i)
+        for i in tqdm(range(len(X_list)), desc=f"Build {split_name}", unit="video"):
+            kpts, label, vid_name = X_list[i], y[i], ids[i]
 
-        for label, indices in label_to_indices.items():
-            indices = np.array(indices)
-            self.rng.shuffle(indices)
-            n = len(indices)
-            n_train = max(1, int(n * TRAIN_RATIO))
-            n_val   = max(1, int(n * VAL_RATIO))
-            # Sisanya masuk test
+            versions = [("original", kpts)]
+            if do_augment:
+                for a in range(aug_cfg["augment_multiplier"]):
+                    aug_kpts = augment_sequence(
+                        kpts=kpts,
+                        techniques=aug_cfg["techniques"],
+                        config=aug_cfg,
+                        rng=self.aug_rng,
+                    )
+                    versions.append((f"aug_{a}", aug_kpts))
 
-            train_idx.extend(indices[:n_train].tolist())
-            val_idx.extend(indices[n_train : n_train + n_val].tolist())
-            test_idx.extend(indices[n_train + n_val:].tolist())
+            for version_name, seq in versions:
+                X_out.append(pad_or_crop_sequence(seq, SEQUENCE_LENGTH))
+                y_out.append(label)
+                id_out.append(f"{vid_name}_{version_name}")
 
-        def make_split(idxs: List[int]) -> Dict:
-            idxs = np.array(idxs)
-            return {
-                "X"   : X[idxs],
-                "y"   : y[idxs],
-                "ids" : [ids[i] for i in idxs],
-            }
-
-        return make_split(train_idx), make_split(val_idx), make_split(test_idx)
+        return {
+            "X"  : np.stack(X_out).astype(np.float32) if X_out else np.zeros((0, SEQUENCE_LENGTH, FEATURES_PER_FRAME), dtype=np.float32),
+            "y"  : np.array(y_out, dtype=np.int64),
+            "ids": np.array(id_out),
+        }
 
     def build(self, skip_existing: bool = True):
         """
-        Pipeline lengkap: load → resize → split → save.
+        Pipeline lengkap: manifest -> split (video-level, shared) -> load keypoint per split
+        -> augment (train only) -> resize -> save.
         """
         create_output_dirs()
 
@@ -211,34 +198,42 @@ class SequenceBuilder:
                 self._print_stats()
                 return
 
-        # 1. Load semua keypoint
-        X_list, y, ids = self._load_all_keypoints()
-        if len(X_list) == 0:
-            print("[SequenceBuilder] ERROR: Tidak ada keypoint yang berhasil diload!")
-            print("  Pastikan keypoint_extractor.py sudah dijalankan terlebih dahulu.")
+        # 1. Load manifest & split video-level (SEBELUM baca keypoint / augmentasi)
+        manifest = self._load_manifest()
+        if not manifest:
+            print("[SequenceBuilder] ERROR: Manifest kosong/tidak ada.")
+            print("  Pastikan PreProcessing/PreProcess.ipynb sudah dijalankan terlebih dahulu.")
             return
 
-        # 2. Temporal resize ke SEQUENCE_LENGTH
-        print(f"[SequenceBuilder] Temporal resize ke {SEQUENCE_LENGTH} frame...")
-        X = self._temporal_resize_all(X_list)
-        print(f"  X shape: {X.shape}, dtype: {X.dtype}")
-        print(f"  y shape: {y.shape}, unique labels: {np.unique(y).shape[0]}")
+        print("[SequenceBuilder] Stratified split (video-level, shared dgn MViTv2)...")
+        train_items, val_items, test_items = stratified_video_split(
+            manifest, TRAIN_RATIO, VAL_RATIO, TEST_RATIO, RANDOM_SEED
+        )
 
-        # 3. Stratified split
-        print("[SequenceBuilder] Stratified split...")
-        train, val, test = self._stratified_split(X, y, ids)
+        aug_cfg = AUGMENTATION_CONFIG
+        print(f"[SequenceBuilder] Augmentasi: enabled={aug_cfg['enabled']}, "
+              f"teknik={aug_cfg['techniques']}, multiplier={aug_cfg['augment_multiplier']}x "
+              f"(hanya diterapkan ke train)")
 
-        # 4. Simpan .npz per split
-        for split_name, split_data in [("train", train), ("val", val), ("test", test)]:
+        # 2. Load keypoint per split, lalu augment (train only) + temporal resize
+        print("[SequenceBuilder] Loading keypoint files...")
+        splits = {}
+        for split_name, items in [("train", train_items), ("val", val_items), ("test", test_items)]:
+            X_list, y, ids = self._load_keypoints_for_items(items)
+            print(f"  [{split_name:5s}] {len(X_list)} video keypoint loaded")
+            splits[split_name] = self._build_split(split_name, X_list, y, ids)
+
+        # 3. Simpan .npz per split
+        for split_name, data in splits.items():
             out_path = get_sequence_output_path(split_name)
             np.savez_compressed(
                 out_path,
-                X    = split_data["X"],
-                y    = split_data["y"],
-                ids  = np.array(split_data["ids"]),
+                X         = data["X"],
+                y         = data["y"],
+                ids       = data["ids"],
                 label_map = np.array([LABEL_MAP[i] for i in range(NUM_LABELS)]),
             )
-            n = len(split_data["y"])
+            n = len(data["y"])
             print(f"  [{split_name:5s}] {n:5d} sequences → {out_path}")
 
         print("\n[SequenceBuilder] ✅ Selesai!")

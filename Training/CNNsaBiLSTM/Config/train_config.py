@@ -1,14 +1,17 @@
 """
-Training/Config/train_config.py
-================================
-Konfigurasi terpusat untuk training CNNsa-BiLSTM.
+Training/CNNsaBiLSTM/Config/train_config.py
+============================================
+Konfigurasi terpusat untuk training CNNsa-BiLSTM (proposed model).
 - Path ke data (output FeatureExtraction)
 - Hyperparameter model
 - Setting training (optimizer, scheduler, early stopping)
 
 Auto-detect ROOT menggunakan keberadaan folder Datasets/ dan PreProcessing/.
+RESULTS_DIR (tempat evaluation_summary.json disimpan & dibaca comparator.py) berasal dari
+Training/Config/shared_config.py — dipakai bersama dengan model lain (mis. MViTv2).
 """
 
+import sys
 from pathlib import Path
 
 
@@ -26,6 +29,10 @@ def find_project_root() -> Path:
 
 ROOT = find_project_root()
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from Training.Config.shared_config import RESULTS_DIR, create_results_dir
+
 
 # ─── PATH DATA (output dari FeatureExtraction) ────────────────────────────────
 SEQUENCE_DIR    = ROOT / "Datasets" / "WLBisindo_Features" / "sequences"
@@ -34,16 +41,18 @@ VAL_NPZ         = SEQUENCE_DIR / "val_sequences.npz"
 TEST_NPZ        = SEQUENCE_DIR / "test_sequences.npz"
 
 # ─── PATH OUTPUT TRAINING ─────────────────────────────────────────────────────
-TRAINING_OUTPUT_DIR = ROOT / "Training" / "Output"
+# Checkpoint & log khusus CNNsaBiLSTM (namespaced, tidak bentrok dengan MViTv2).
+# RESULTS_DIR tetap SHARED (lihat shared_config.py) supaya comparator.py bisa baca
+# evaluation_summary.json dari kedua model di satu tempat yang sama.
+TRAINING_OUTPUT_DIR = ROOT / "Training" / "Output" / "cnnsa_bilstm"
 CHECKPOINT_DIR      = TRAINING_OUTPUT_DIR / "checkpoints"
 LOG_DIR             = TRAINING_OUTPUT_DIR / "logs"
-RESULTS_DIR         = TRAINING_OUTPUT_DIR / "results"
 
 
 # ─── DIMENSI INPUT (harus konsisten dengan FeatureExtraction) ─────────────────
 SEQUENCE_LENGTH  = 30     # frame per sequence
 FEATURES_PER_FRAME = 126  # 2 tangan × 21 keypoint × 3 coords
-NUM_CLASSES      = 40     # jumlah kata BISINDO
+NUM_CLASSES      = 32     # jumlah kata BISINDO (sesuai label unik di Datasets/WLBisindo saat ini: label0-label31)
 
 
 # ─── ARSITEKTUR MODEL CNNsa-BiLSTM ────────────────────────────────────────────

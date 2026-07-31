@@ -3,21 +3,25 @@
 ## Struktur File
 
 ```
-preprocessing/
+PreProcessing/
 ├── PreProcess.ipynb              ← Notebook utama (jalankan ini)
-├── config/
+├── Config/
 │   └── dataset_config.py         ← Konfigurasi dataset & preprocessing
-└── scripts/
-    ├── frame_extractor.py         ← Step 1: Video → Frames
-    ├── augmentor.py               ← Step 2: Augmentation + Padding
-    └── dataloader_builder.py      ← Step 3: Split + Simpan .npz
+└── Scripts/
+    └── frame_extractor.py        ← Step 1: Video → Frames (Blur → Resize → Uniform Sampling)
 ```
+
+> ℹ️ **Augmentasi & split train/val/test tidak dilakukan di sini.** Notebook ini hanya
+> extract frame mentah. Keduanya dilakukan di `FeatureExtraction/FeatureExtraction.ipynb`
+> pada level **keypoint** (bukan pixel) — lihat `FeatureExtraction Setup.md`. Alasannya:
+> model final memakai keypoint MediaPipe (T, 126), dan augmentasi fotometrik pada pixel
+> (brightness/contrast) tidak berpengaruh sama sekali pada keypoint yang sudah dinormalisasi.
 
 ## Cara Pakai
 
 ### 1. Setup path dataset
 
-Edit `config/dataset_config.py`:
+Edit `Config/dataset_config.py`:
 ```python
 "WLBisindo": {
     "raw_video_dir": "path/ke/folder/WLBisindo",  # ← Ganti ini
@@ -48,18 +52,14 @@ ACTIVE_DATASET = "NamaDatasetBaru"
 
 Default: `signer{N}_label{N}_sample{N}.mp4`
 
-Untuk format lain, tambahkan parser di `scripts/frame_extractor.py` → fungsi `_parse_filename()`.
+Untuk format lain, tambahkan parser di `Scripts/frame_extractor.py` → fungsi `_parse_filename()`.
 
 ## Output
 
 ```
-data/processed/WLBisindo/
-├── frames/                    ← frame per video
-├── augmented/                 ← sequence augmented
-└── dataloader/
-    ├── train.npz              ← shape: (N, T, H, W, C)
-    ├── val.npz
-    ├── test.npz
-    ├── label_map.json
-    └── split_info.json
+Datasets/WLBisindo_Processed/
+├── frames/                    ← frame per video (.npy), bertingkat per label
+└── frame_manifest.json        ← metadata semua video (signer, label, sample, path frame)
 ```
+
+**Next step**: `FeatureExtraction/FeatureExtraction.ipynb` — ekstraksi keypoint, split, dan augmentasi.

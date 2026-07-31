@@ -1,9 +1,10 @@
 """
 Training/Scripts/comparator.py
 ==============================
-Script pembanding untuk membandingkan model CNNsa-BiLSTM dengan model lain.
-Saat ini berfungsi sebagai placeholder. Jika nanti model baru (misalnya Transformer)
-telah dilatih, script ini akan memuat summary evaluasi masing-masing dan membuat tabel komparasi.
+Script pembanding untuk membandingkan CNNsa-BiLSTM (proposed, Training/CNNsaBiLSTM/)
+vs MViTv2 (baseline transformer, Training/MViTv2/). Model-agnostic: cukup baca dua
+file *_evaluation_summary.json dari RESULTS_DIR (shared_config.py) yang ditulis
+masing-masing evaluator, tidak import apapun spesifik ke satu model.
 """
 
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 # Setup path agar bisa import modul dari root
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from Training.Config.train_config import RESULTS_DIR
+from Training.Config.shared_config import RESULTS_DIR
 
 
 def print_model_summary(model_name: str, summary_path: Path):
@@ -41,20 +42,19 @@ def compare_models():
     cnnsa_path = RESULTS_DIR / "evaluation_summary.json"
     cnnsa_summary = print_model_summary("CNNsa-BiLSTM (Proposed)", cnnsa_path)
     
-    # 2. Muat hasil model pembanding (misalnya Transformer, jika ada)
-    # Ganti path ini nanti setelah model pembanding dibuat
+    # 2. Muat hasil model pembanding (MViTv2, baseline transformer)
     transformer_path = RESULTS_DIR / "transformer_evaluation_summary.json"
-    transformer_summary = print_model_summary("Transformer (Future)", transformer_path)
-    
+    transformer_summary = print_model_summary("MViTv2 (Baseline)", transformer_path)
+
     if cnnsa_summary and transformer_summary:
         print("\n=== Tabel Perbandingan Akhir ===")
-        print(f"{'Metrik':<25} | {'CNNsa-BiLSTM (Proposed)':<25} | {'Transformer (Future)':<25}")
+        print(f"{'Metrik':<25} | {'CNNsa-BiLSTM (Proposed)':<25} | {'MViTv2 (Baseline)':<25}")
         print("-" * 81)
-        
+
         for key in ["accuracy", "f1_weighted", "avg_inference_cpu_ms", "model_size_mb"]:
             val1 = cnnsa_summary[key]
             val2 = transformer_summary[key]
-            
+
             if "accuracy" in key or "f1" in key:
                 print(f"{key:<25} | {val1*100:23.2f}% | {val2*100:23.2f}%")
             elif "ms" in key:
@@ -63,9 +63,9 @@ def compare_models():
                 print(f"{key:<25} | {val1:21.2f} MB | {val2:21.2f} MB")
     else:
         print("\n💡 Petunjuk:")
-        print("  Belum ada model pembanding. Setelah Anda mengimplementasikan paper")
-        print("  Transformer pilihan Anda, simpan hasil evaluasinya ke:")
-        print(f"  {transformer_path}")
+        print("  Salah satu/kedua model belum dievaluasi. Jalankan:")
+        print("  - Training/CNNsaBiLSTM/Train.ipynb  -> tulis evaluation_summary.json")
+        print("  - Training/MViTv2/TrainMViT.ipynb   -> tulis transformer_evaluation_summary.json")
         print("  Lalu jalankan kembali script ini untuk membandingkan keduanya.")
 
 

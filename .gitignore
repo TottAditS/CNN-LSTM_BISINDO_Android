@@ -1,1 +1,14 @@
 /Datasets
+
+# Training outputs (checkpoints, logs, evaluation results) — auto-generated, bisa besar (>100MB)
+/Training/Output/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# PyTorch pretrained weight cache (kalau ada yang download ke dalam repo, bukan ~/.cache)
+*.pth

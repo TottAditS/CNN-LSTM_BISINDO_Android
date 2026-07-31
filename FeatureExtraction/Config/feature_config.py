@@ -29,9 +29,12 @@ SEQUENCE_DIR        = FEATURE_OUTPUT_DIR / "sequences"    # final .npz
 
 
 # ─── DATASET INFO ─────────────────────────────────────────────────────────────
-NUM_SIGNERS                  = 4
-NUM_LABELS                   = 40
-SAMPLES_PER_LABEL_PER_SIGNER = 10
+# Sesuai isi Datasets/WLBisindo saat ini: signer0-signer4, label0-label31.
+# signer0 baru merekam 12/32 label; sample per (signer,label) bervariasi 10 atau 15.
+# Update nilai ini jika dataset bertambah (mis. lengkap jadi 40 label).
+NUM_SIGNERS                  = 5
+NUM_LABELS                   = 32
+SAMPLES_PER_LABEL_PER_SIGNER = None  # bervariasi, tidak dipakai untuk enumerasi file
 
 
 # ─── FRAME SETTINGS (harus sama dengan PreProcessing) ─────────────────────────
@@ -67,6 +70,23 @@ TRAIN_RATIO = 0.70
 VAL_RATIO   = 0.15
 TEST_RATIO  = 0.15
 RANDOM_SEED = 42
+
+
+# ─── AUGMENTATION SETTINGS (keypoint-level) ────────────────────────────────────
+# Augmentasi dilakukan di sini (bukan di PreProcessing) karena model final
+# memakai keypoint MediaPipe (T, 126), bukan raw pixel frame — augmentasi
+# fotometrik (brightness/contrast) tidak berpengaruh ke koordinat keypoint
+# yang sudah dinormalisasi, jadi hanya transformasi geometris yang dipakai.
+# Augmentasi HANYA diterapkan ke video yang masuk train split (split dilakukan
+# dulu sebelum augmentasi, supaya tidak ada data leakage ke val/test).
+AUGMENTATION_CONFIG = {
+    "enabled"             : True,
+    "techniques"          : ["horizontal_flip", "rotation", "zoom"],
+    "horizontal_flip_prob": 0.5,
+    "rotation_range"      : (-10, 10),   # derajat, rotasi tiap tangan di sekitar wrist
+    "zoom_range"          : (0.9, 1.1),  # skala jarak tiap keypoint dari wrist
+    "augment_multiplier"  : 2,           # 1 original + 2 augmented = 3x data train
+}
 
 
 # ─── PROCESSING SETTINGS ──────────────────────────────────────────────────────

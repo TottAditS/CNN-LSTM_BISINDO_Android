@@ -1,6 +1,6 @@
 """
-Training/Scripts/trainer.py
-==========================
+Training/CNNsaBiLSTM/Scripts/trainer.py
+=========================================
 Script untuk melatih model CNNsa-BiLSTM.
 - Dataset & DataLoader loading
 - Training & Validation loop
@@ -18,16 +18,17 @@ import numpy as np
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
-# Setup path agar bisa import modul dari root
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Setup path agar bisa import modul dari root (Scripts -> CNNsaBiLSTM -> Training -> ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from Training.Config.train_config import (
+from Training.CNNsaBiLSTM.Config.train_config import (
     TRAIN_NPZ, VAL_NPZ, MODEL_CONFIG, TRAIN_CONFIG,
     EARLY_STOPPING_CONFIG, LR_SCHEDULER_CONFIG, CHECKPOINT_CONFIG,
     CHECKPOINT_DIR, LOG_DIR, RESULTS_DIR,
     create_output_dirs, verify_data_exists
 )
-from Training.Models.cnnsa_bilstm import CNNsaBiLSTM
+from Training.CNNsaBiLSTM.Models.cnnsa_bilstm import CNNsaBiLSTM
+from Training.Scripts.device_utils import get_device
 
 
 class KeypointDataset(Dataset):
@@ -256,8 +257,8 @@ class Trainer:
 def run_training():
     if not verify_data_exists():
         return
-        
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    device = get_device()
     trainer = Trainer(device)
     trainer.fit()
 
