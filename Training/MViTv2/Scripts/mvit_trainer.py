@@ -3,7 +3,7 @@ Training/MViTv2/Scripts/mvit_trainer.py
 ==========================================
 Script untuk fine-tune MViTv2 (baseline transformer).
 - Dataset & DataLoader loading (raw video clip, lihat mvit_dataset.py)
-- Training & Validation loop dengan mixed precision (AMP) — perlu untuk muat di VRAM 8GB
+- Training & Validation loop dengan mixed precision (AMP) -- perlu untuk muat di VRAM 8GB
 - Differential learning rate (backbone kecil, head besar)
 - Early stopping & LR scheduling
 - Saving checkpoints
@@ -98,7 +98,7 @@ class MViTTrainer:
             min_lr=LR_SCHEDULER_CONFIG["min_lr"],
         )
 
-        # 7. Mixed precision (AMP) — wajib untuk muat MViTv2 + clip 16x224x224 di VRAM 8GB
+        # 7. Mixed precision (AMP) -- wajib untuk muat MViTv2 + clip 16x224x224 di VRAM 8GB
         self.use_amp = TRAIN_CONFIG["use_amp"] and torch.cuda.is_available()
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         if TRAIN_CONFIG["use_amp"] and not torch.cuda.is_available():

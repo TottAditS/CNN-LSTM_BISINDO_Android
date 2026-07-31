@@ -2,7 +2,7 @@
 scripts/frame_extractor.py
 ===========================
 Step 1 dari pipeline preprocessing:
-  Video → Extract Frames → Blur Filter → Resize → Uniform Sampling → Video Cutting
+  Video -> Extract Frames -> Blur Filter -> Resize -> Uniform Sampling -> Video Cutting
 
 Output: folder berisi frame-frame .jpg per video
 """
@@ -78,7 +78,7 @@ def extract_frames_from_video(
             # 2. Resize
             frame = cv2.resize(frame, (resize[1], resize[0]))  # cv2: (W, H)
 
-            # 3. Convert BGR → RGB
+            # 3. Convert BGR -> RGB
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             frames.append(frame)
@@ -249,7 +249,7 @@ def process_dataset(
 
 def _parse_filename(stem: str) -> Optional[Dict]:
     """
-    Parse: signer0_label0_sample1 → {signer_idx: 0, label_idx: 0, sample_idx: 1}
+    Parse: signer0_label0_sample1 -> {signer_idx: 0, label_idx: 0, sample_idx: 1}
     Modular: tambahkan format lain di sini jika dataset berbeda.
     """
     try:

@@ -5,11 +5,11 @@ Step 1: Ekstraksi 21 keypoint per tangan menggunakan MediaPipe Hands.
 - Input : frames .npy per video (output PreProcessing)
 - Output: keypoint .npy per video, shape (T, 126)
            T   = jumlah frame
-           126 = 2 tangan × 21 keypoint × 3 coords (x, y, z)
+           126 = 2 tangan x 21 keypoint x 3 coords (x, y, z)
 
 MediaPipe handle segalanya secara internal:
-  1. Palm Detector → temukan area tangan di frame
-  2. Hand Landmark → ekstrak 21 keypoint dari area itu
+  1. Palm Detector -> temukan area tangan di frame
+  2. Hand Landmark -> ekstrak 21 keypoint dari area itu
 Tidak perlu preprocessing segmentasi tambahan.
 """
 
@@ -35,7 +35,7 @@ from FeatureExtraction.Config.feature_config import (
 mp_hands = mp.solutions.hands
 
 WRIST_IDX = 0
-MCP_IDX   = 9  # Middle finger MCP — untuk skala hand size
+MCP_IDX   = 9  # Middle finger MCP -- untuk skala hand size
 
 
 class KeypointExtractor:
@@ -45,11 +45,11 @@ class KeypointExtractor:
     Output shape per video: (T, 126)
         - Tangan kiri  : index [0:63]
         - Tangan kanan : index [63:126]
-        - Tangan tidak terdeteksi → zeros
+        - Tangan tidak terdeteksi -> zeros
 
     Normalisasi (jika NORMALIZE_KEYPOINTS=True):
-        - Kurangi koordinat wrist → posisi relatif ke wrist
-        - Bagi dengan jarak wrist→MCP9 → scale invariant
+        - Kurangi koordinat wrist -> posisi relatif ke wrist
+        - Bagi dengan jarak wrist->MCP9 -> scale invariant
     """
 
     def __init__(self):
@@ -68,7 +68,7 @@ class KeypointExtractor:
             print(f"  features_per_frame : {FEATURES_PER_FRAME}")
 
     def _landmarks_to_array(self, hand_landmarks) -> np.ndarray:
-        """MediaPipe NormalizedLandmarkList → numpy (63,)."""
+        """MediaPipe NormalizedLandmarkList -> numpy (63,)."""
         kpts = np.zeros(KEYPOINTS_PER_HAND * COORDS_PER_KEYPOINT, dtype=np.float32)
         for i, lm in enumerate(hand_landmarks.landmark):
             kpts[i * 3]     = lm.x
@@ -97,7 +97,7 @@ class KeypointExtractor:
     def extract_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
         """
         Ekstrak keypoint dari satu frame BGR.
-        Returns: (126,) float32 — zeros jika tidak terdeteksi.
+        Returns: (126,) float32 -- zeros jika tidak terdeteksi.
         """
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         results   = self.hands.process(frame_rgb)

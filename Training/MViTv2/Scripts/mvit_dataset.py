@@ -7,7 +7,7 @@ Kinetics-400 (mean/std torchvision), augmentasi (flip) khusus train.
 
 Split video-level dilakukan via FeatureExtraction/Scripts/video_split.py yang
 SAMA dengan yang dipakai FeatureExtraction/Scripts/sequence_builder.py (CNNsa-BiLSTM)
-— supaya video val/test kedua model identik.
+-- supaya video val/test kedua model identik.
 """
 
 import sys

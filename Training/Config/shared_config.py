@@ -4,7 +4,7 @@ Training/Config/shared_config.py
 Konfigurasi yang dipakai BERSAMA oleh semua model di Training/ (CNNsaBiLSTM/, MViTv2/, dst)
 dan oleh Training/Scripts/comparator.py.
 
-Cuma berisi lokasi output "results" — tempat tiap model menyimpan *_evaluation_summary.json
+Cuma berisi lokasi output "results" -- tempat tiap model menyimpan *_evaluation_summary.json
 setelah eval, yang lalu dibaca comparator.py untuk bikin tabel perbandingan. Config yang
 spesifik ke satu model (hyperparameter, path checkpoint/log model itu sendiri) tetap hidup
 di Config/ masing-masing model (mis. Training/CNNsaBiLSTM/Config/train_config.py).

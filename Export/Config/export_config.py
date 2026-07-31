@@ -42,14 +42,14 @@ from Training.MViTv2.Config.mvit_config import (
 CNNSA_CHECKPOINT_PATH = CNNSA_CHECKPOINT_DIR / CNNSA_CHECKPOINT_CONFIG["filename"]
 MVIT_CHECKPOINT_PATH  = MVIT_CHECKPOINT_DIR / MVIT_CHECKPOINT_CONFIG["filename"]
 
-# ─── OUTPUT ONNX ────────────────────────────────────────────────────────────
+# --- OUTPUT ONNX ------------------------------------------------------------
 EXPORT_OUTPUT_DIR = ROOT / "Export" / "Output"
 ONNX_DIR           = EXPORT_OUTPUT_DIR / "onnx"
 
 CNNSA_ONNX_PATH = ONNX_DIR / "cnnsa_bilstm.onnx"
 MVIT_ONNX_PATH  = ONNX_DIR / "mvit_v2.onnx"
 
-# ─── EXPORT SETTINGS ──────────────────────────────────────────────────────────
+# --- EXPORT SETTINGS ----------------------------------------------------------
 # Dua model butuh exporter ONNX yang BEDA -- dikonfirmasi lewat tes langsung, bukan tebakan:
 #
 # - CNNsa-BiLSTM: exporter LEGACY (TorchScript-based, dynamo=False) sudah cukup dan tervalidasi

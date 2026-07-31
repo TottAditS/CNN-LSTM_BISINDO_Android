@@ -1,7 +1,7 @@
 """
 FeatureExtraction/Scripts/video_split.py
 ==========================================
-Split video (bukan sample) ke train/val/test, stratified per label — dipakai
+Split video (bukan sample) ke train/val/test, stratified per label -- dipakai
 BERSAMA oleh dua pipeline yang beda modalitas data tapi harus dibandingkan di
 video val/test yang SAMA PERSIS:
 - FeatureExtraction/Scripts/sequence_builder.py  (keypoint, untuk CNNsa-BiLSTM)
@@ -9,7 +9,7 @@ video val/test yang SAMA PERSIS:
 
 Kedua pipeline memanggil stratified_video_split() dengan seed & rasio yang sama
 (dari FeatureExtraction/Config/feature_config.py), jadi video yang jadi val/test
-untuk CNNsa-BiLSTM juga video yang sama persis jadi val/test untuk MViTv2 —
+untuk CNNsa-BiLSTM juga video yang sama persis jadi val/test untuk MViTv2 --
 supaya perbandingan akurasi kedua model apple-to-apple.
 """
 
@@ -35,7 +35,7 @@ def stratified_video_split(
         seed       : random seed (RandomState) untuk reproducibility
 
     Returns:
-        (train_items, val_items, test_items) — masing-masing subset dari manifest,
+        (train_items, val_items, test_items) -- masing-masing subset dari manifest,
         urutan asli tiap item dipertahankan.
     """
     rng = np.random.RandomState(seed)

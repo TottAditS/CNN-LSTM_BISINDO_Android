@@ -2,29 +2,29 @@
 Dataset Configuration
 ======================
 Path otomatis dihitung relatif dari ROOT repo (CNN-LSTM_BISINDO_Android/).
-Tidak perlu hardcode path absolut — script jalan di mana saja.
+Tidak perlu hardcode path absolut -- script jalan di mana saja.
 
 Struktur repo yang diasumsikan:
     CNN-LSTM_BISINDO_Android/
-    ├── Datasets/
-    │   └── WLBisindo/          ← raw video
-    ├── PreProcessing/
-    │   ├── Config/
-    │   │   └── dataset_config.py   ← FILE INI
-    │   ├── Scripts/
-    │   └── PreProcess.ipynb
-    └── Requirements.txt
+    +-- Datasets/
+    |   +-- WLBisindo/          <- raw video
+    +-- PreProcessing/
+    |   +-- Config/
+    |   |   +-- dataset_config.py   <- FILE INI
+    |   +-- Scripts/
+    |   +-- PreProcess.ipynb
+    +-- Requirements.txt
 """
 
 from pathlib import Path
 
-# ── Auto-detect ROOT repo ──────────────────────────────────────────────────
+# -- Auto-detect ROOT repo --------------------------------------------------
 # File ini ada di: <ROOT>/PreProcessing/Config/dataset_config.py
 # Jadi ROOT = 2 level ke atas dari file ini
 _THIS_FILE = Path(__file__).resolve()
-ROOT = _THIS_FILE.parent.parent.parent   # Config/ → PreProcessing/ → ROOT
+ROOT = _THIS_FILE.parent.parent.parent   # Config/ -> PreProcessing/ -> ROOT
 
-# ── Helper ────────────────────────────────────────────────────────────────
+# -- Helper ----------------------------------------------------------------
 def _raw(dataset_name: str) -> str:
     """Path ke folder raw video dataset."""
     return str(ROOT / "Datasets" / dataset_name)
@@ -34,13 +34,13 @@ def _processed(dataset_name: str) -> str:
     return str(ROOT / "Datasets" / f"{dataset_name}_Processed")
 
 
-# ══════════════════════════════════════════════════════════════════════════
+# ==========================================================================
 # DATASET CONFIGS
 # Untuk menambah dataset baru: copy-paste blok WLBisindo dan edit nilainya
-# ══════════════════════════════════════════════════════════════════════════
+# ==========================================================================
 DATASET_CONFIGS = {
 
-    # ── Dataset 1: WLBisindo ──────────────────────────────────────────────
+    # -- Dataset 1: WLBisindo ----------------------------------------------
     "WLBisindo": {
         "raw_video_dir" : _raw("WLBisindo"),
         "output_dir"    : _processed("WLBisindo"),
@@ -55,7 +55,7 @@ DATASET_CONFIGS = {
         "description"   : "BISINDO Word-Level, 32 kata, 5 signer, 10-15 sample",
     },
 
-    # ── Dataset 2 (contoh, uncomment jika ada) ────────────────────────────
+    # -- Dataset 2 (contoh, uncomment jika ada) ----------------------------
     # "SIBI_Alphabet": {
     #     "raw_video_dir" : _raw("SIBI_Alphabet"),
     #     "output_dir"    : _processed("SIBI_Alphabet"),
@@ -72,9 +72,9 @@ DATASET_CONFIGS = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════════
+# ==========================================================================
 # GLOBAL PREPROCESSING SETTINGS
-# ══════════════════════════════════════════════════════════════════════════
+# ==========================================================================
 PREPROCESSING_CONFIG = {
 
     "frame": {
@@ -97,7 +97,7 @@ PREPROCESSING_CONFIG = {
 }
 
 
-# ── Debug: print paths saat diimport ──────────────────────────────────────
+# -- Debug: print paths saat diimport --------------------------------------
 if __name__ == "__main__":
     print(f"ROOT repo   : {ROOT}")
     for name, cfg in DATASET_CONFIGS.items():

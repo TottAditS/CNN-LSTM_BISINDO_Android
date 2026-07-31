@@ -1,18 +1,18 @@
 """
 FeatureExtraction/Scripts/keypoint_augmentor.py
 =================================================
-Augmentasi sequence keypoint (T, 126) — dipakai oleh sequence_builder.py.
+Augmentasi sequence keypoint (T, 126) -- dipakai oleh sequence_builder.py.
 
 Kenapa di sini, bukan di PreProcessing (pixel-level)?
 Model final (CNNsa-BiLSTM) memakai keypoint MediaPipe, bukan raw pixel frame.
 Augmentasi fotometrik (brightness/contrast) tidak berpengaruh ke koordinat
-keypoint yang sudah dinormalisasi (relatif ke wrist, scale-invariant) — jadi
+keypoint yang sudah dinormalisasi (relatif ke wrist, scale-invariant) -- jadi
 hanya transformasi geometris (flip, rotate, zoom) yang benar-benar mengubah
 nilai keypoint dan berguna sebagai augmentasi.
 
 Layout satu baris keypoint (126,): [tangan_kiri(63), tangan_kanan(63)],
 tiap tangan = 21 keypoint x (x, y, z) berurutan. Tangan yang tidak
-terdeteksi bernilai nol — semua operasi di bawah ini no-op pada nol.
+terdeteksi bernilai nol -- semua operasi di bawah ini no-op pada nol.
 """
 
 import numpy as np
@@ -60,7 +60,7 @@ def apply_rotation(kpts: np.ndarray, angle_deg: float) -> np.ndarray:
 
 
 def apply_zoom(kpts: np.ndarray, zoom_factor: float) -> np.ndarray:
-    """Skala jarak tiap keypoint dari wrist — variasi ringan untuk regularisasi."""
+    """Skala jarak tiap keypoint dari wrist -- variasi ringan untuk regularisasi."""
     return kpts * zoom_factor
 
 

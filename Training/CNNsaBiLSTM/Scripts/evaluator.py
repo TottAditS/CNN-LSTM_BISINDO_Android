@@ -175,7 +175,7 @@ class Evaluator:
                 xticklabels=self.label_map,
                 yticklabels=self.label_map
             )
-            plt.title("Confusion Matrix — CNNsa-BiLSTM (Test Set)")
+            plt.title("Confusion Matrix -- CNNsa-BiLSTM (Test Set)")
             plt.xlabel("Predicted Labels")
             plt.ylabel("True Labels")
             plt.tight_layout()

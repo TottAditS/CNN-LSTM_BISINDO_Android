@@ -36,7 +36,7 @@ def build_mvit_v2(
         dropout             : dropout rate di head baru
 
     Returns:
-        nn.Module — forward(x) dengan x shape (B, C, T, H, W) -> logits (B, num_classes)
+        nn.Module -- forward(x) dengan x shape (B, C, T, H, W) -> logits (B, num_classes)
     """
     weights = MViT_V2_S_Weights.KINETICS400_V1 if pretrained else None
     model = mvit_v2_s(weights=weights)

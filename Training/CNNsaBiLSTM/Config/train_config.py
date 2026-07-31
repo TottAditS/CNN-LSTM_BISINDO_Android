@@ -8,14 +8,14 @@ Konfigurasi terpusat untuk training CNNsa-BiLSTM (proposed model).
 
 Auto-detect ROOT menggunakan keberadaan folder Datasets/ dan PreProcessing/.
 RESULTS_DIR (tempat evaluation_summary.json disimpan & dibaca comparator.py) berasal dari
-Training/Config/shared_config.py — dipakai bersama dengan model lain (mis. MViTv2).
+Training/Config/shared_config.py -- dipakai bersama dengan model lain (mis. MViTv2).
 """
 
 import sys
 from pathlib import Path
 
 
-# ─── AUTO-DETECT ROOT ─────────────────────────────────────────────────────────
+# --- AUTO-DETECT ROOT ---------------------------------------------------------
 def find_project_root() -> Path:
     current = Path(__file__).resolve()
     for parent in current.parents:
@@ -34,13 +34,13 @@ if str(ROOT) not in sys.path:
 from Training.Config.shared_config import RESULTS_DIR, create_results_dir
 
 
-# ─── PATH DATA (output dari FeatureExtraction) ────────────────────────────────
+# --- PATH DATA (output dari FeatureExtraction) --------------------------------
 SEQUENCE_DIR    = ROOT / "Datasets" / "WLBisindo_Features" / "sequences"
 TRAIN_NPZ       = SEQUENCE_DIR / "train_sequences.npz"
 VAL_NPZ         = SEQUENCE_DIR / "val_sequences.npz"
 TEST_NPZ        = SEQUENCE_DIR / "test_sequences.npz"
 
-# ─── PATH OUTPUT TRAINING ─────────────────────────────────────────────────────
+# --- PATH OUTPUT TRAINING -----------------------------------------------------
 # Checkpoint & log khusus CNNsaBiLSTM (namespaced, tidak bentrok dengan MViTv2).
 # RESULTS_DIR tetap SHARED (lihat shared_config.py) supaya comparator.py bisa baca
 # evaluation_summary.json dari kedua model di satu tempat yang sama.
@@ -49,17 +49,17 @@ CHECKPOINT_DIR      = TRAINING_OUTPUT_DIR / "checkpoints"
 LOG_DIR             = TRAINING_OUTPUT_DIR / "logs"
 
 
-# ─── DIMENSI INPUT (harus konsisten dengan FeatureExtraction) ─────────────────
+# --- DIMENSI INPUT (harus konsisten dengan FeatureExtraction) -----------------
 SEQUENCE_LENGTH  = 30     # frame per sequence
-FEATURES_PER_FRAME = 126  # 2 tangan × 21 keypoint × 3 coords
+FEATURES_PER_FRAME = 126  # 2 tangan x 21 keypoint x 3 coords
 NUM_CLASSES      = 32     # jumlah kata BISINDO (sesuai label unik di Datasets/WLBisindo saat ini: label0-label31)
 
 
-# ─── ARSITEKTUR MODEL CNNsa-BiLSTM ────────────────────────────────────────────
+# --- ARSITEKTUR MODEL CNNsa-BiLSTM --------------------------------------------
 MODEL_CONFIG = {
     "input_size"    : FEATURES_PER_FRAME,   # 126
     "feature_dim"   : 256,    # output ukuran per-frame CNN Block
-    "hidden_size"   : 256,    # hidden size BiLSTM per arah (×2 = 512 bidirectional)
+    "hidden_size"   : 256,    # hidden size BiLSTM per arah (x2 = 512 bidirectional)
     "num_layers"    : 2,      # jumlah layer BiLSTM
     "num_classes"   : NUM_CLASSES,
     "dropout"       : 0.3,
@@ -67,7 +67,7 @@ MODEL_CONFIG = {
 }
 
 
-# ─── HYPERPARAMETER TRAINING ──────────────────────────────────────────────────
+# --- HYPERPARAMETER TRAINING --------------------------------------------------
 TRAIN_CONFIG = {
     "batch_size"    : 64,
     "max_epochs"    : 100,
@@ -77,7 +77,7 @@ TRAIN_CONFIG = {
 }
 
 
-# ─── EARLY STOPPING ───────────────────────────────────────────────────────────
+# --- EARLY STOPPING -----------------------------------------------------------
 EARLY_STOPPING_CONFIG = {
     "monitor"   : "val_accuracy",   # metrik yang dipantau
     "patience"  : 10,               # tunggu N epoch tanpa perbaikan sebelum stop
@@ -86,7 +86,7 @@ EARLY_STOPPING_CONFIG = {
 }
 
 
-# ─── LEARNING RATE SCHEDULER ──────────────────────────────────────────────────
+# --- LEARNING RATE SCHEDULER --------------------------------------------------
 LR_SCHEDULER_CONFIG = {
     "type"      : "ReduceLROnPlateau",
     "monitor"   : "val_loss",
@@ -96,7 +96,7 @@ LR_SCHEDULER_CONFIG = {
 }
 
 
-# ─── CHECKPOINT ───────────────────────────────────────────────────────────────
+# --- CHECKPOINT ---------------------------------------------------------------
 CHECKPOINT_CONFIG = {
     "monitor"       : "val_accuracy",
     "save_best_only": True,
@@ -104,7 +104,7 @@ CHECKPOINT_CONFIG = {
 }
 
 
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
+# --- HELPERS ------------------------------------------------------------------
 def create_output_dirs():
     """Buat semua direktori output Training jika belum ada."""
     for d in [TRAINING_OUTPUT_DIR, CHECKPOINT_DIR, LOG_DIR, RESULTS_DIR]:

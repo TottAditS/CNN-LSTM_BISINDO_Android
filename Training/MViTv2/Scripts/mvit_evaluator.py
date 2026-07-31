@@ -7,11 +7,11 @@ Script untuk mengevaluasi MViTv2 yang sudah di-fine-tune, menggunakan test split
 - Menghitung waktu inferensi per clip (CPU benchmark)
 - Menghitung ukuran model (MB) dan jumlah parameter
 - Menyimpan ringkasan evaluasi sebagai "transformer_evaluation_summary.json" ke
-  RESULTS_DIR (shared) — path yang SAMA yang dibaca Training/Scripts/comparator.py,
+  RESULTS_DIR (shared) -- path yang SAMA yang dibaca Training/Scripts/comparator.py,
   jadi comparator.py tidak perlu diubah sama sekali.
 
 Catatan: benchmark CPU di sini murni untuk tabel perbandingan riset (skripsi),
-BUKAN klaim MViTv2 layak deploy ke Android — model ini >131MB dan jauh di atas
+BUKAN klaim MViTv2 layak deploy ke Android -- model ini >131MB dan jauh di atas
 budget model mobile, beda dengan CNNsa-BiLSTM yang memang didesain untuk itu.
 """
 
@@ -168,7 +168,7 @@ class MViTEvaluator:
                 xticklabels=self.label_map,
                 yticklabels=self.label_map,
             )
-            plt.title("Confusion Matrix — MViTv2 (Test Set)")
+            plt.title("Confusion Matrix -- MViTv2 (Test Set)")
             plt.xlabel("Predicted Labels")
             plt.ylabel("True Labels")
             plt.tight_layout()

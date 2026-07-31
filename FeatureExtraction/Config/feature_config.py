@@ -17,7 +17,7 @@ def find_project_root() -> Path:
     )
 
 
-# ─── ROOT & PATH ──────────────────────────────────────────────────────────────
+# --- ROOT & PATH --------------------------------------------------------------
 ROOT = find_project_root()
 
 DATASET_DIR         = ROOT / "Datasets" / "WLBisindo"
@@ -28,7 +28,7 @@ KEYPOINT_DIR        = FEATURE_OUTPUT_DIR / "keypoints"    # per-video .npy
 SEQUENCE_DIR        = FEATURE_OUTPUT_DIR / "sequences"    # final .npz
 
 
-# ─── DATASET INFO ─────────────────────────────────────────────────────────────
+# --- DATASET INFO -------------------------------------------------------------
 # Sesuai isi Datasets/WLBisindo saat ini: signer0-signer4, label0-label31.
 # signer0 baru merekam 12/32 label; sample per (signer,label) bervariasi 10 atau 15.
 # Update nilai ini jika dataset bertambah (mis. lengkap jadi 40 label).
@@ -37,13 +37,13 @@ NUM_LABELS                   = 32
 SAMPLES_PER_LABEL_PER_SIGNER = None  # bervariasi, tidak dipakai untuk enumerasi file
 
 
-# ─── FRAME SETTINGS (harus sama dengan PreProcessing) ─────────────────────────
+# --- FRAME SETTINGS (harus sama dengan PreProcessing) -------------------------
 FRAME_SIZE       = (224, 224)
 MAX_FRAMES       = 60
 SEQUENCE_LENGTH  = 30
 
 
-# ─── MEDIAPIPE SETTINGS ───────────────────────────────────────────────────────
+# --- MEDIAPIPE SETTINGS -------------------------------------------------------
 NUM_HANDS           = 2
 KEYPOINTS_PER_HAND  = 21
 COORDS_PER_KEYPOINT = 3
@@ -55,26 +55,26 @@ MP_MIN_DETECTION_CONFIDENCE = 0.5
 MP_MIN_TRACKING_CONFIDENCE  = 0.5
 
 
-# ─── NORMALISASI KEYPOINT ─────────────────────────────────────────────────────
-# Subtract wrist, scale by wrist→MCP9 distance → invariant terhadap posisi & ukuran tangan
+# --- NORMALISASI KEYPOINT -----------------------------------------------------
+# Subtract wrist, scale by wrist->MCP9 distance -> invariant terhadap posisi & ukuran tangan
 NORMALIZE_KEYPOINTS = True
 
 
-# ─── SEQUENCE SETTINGS ────────────────────────────────────────────────────────
+# --- SEQUENCE SETTINGS --------------------------------------------------------
 PAD_VALUE            = 0.0
 CENTER_CROP_TEMPORAL = True   # True = ambil frame tengah; False = ambil N frame pertama
 
 
-# ─── SPLIT SETTINGS ───────────────────────────────────────────────────────────
+# --- SPLIT SETTINGS -----------------------------------------------------------
 TRAIN_RATIO = 0.70
 VAL_RATIO   = 0.15
 TEST_RATIO  = 0.15
 RANDOM_SEED = 42
 
 
-# ─── AUGMENTATION SETTINGS (keypoint-level) ────────────────────────────────────
+# --- AUGMENTATION SETTINGS (keypoint-level) ------------------------------------
 # Augmentasi dilakukan di sini (bukan di PreProcessing) karena model final
-# memakai keypoint MediaPipe (T, 126), bukan raw pixel frame — augmentasi
+# memakai keypoint MediaPipe (T, 126), bukan raw pixel frame -- augmentasi
 # fotometrik (brightness/contrast) tidak berpengaruh ke koordinat keypoint
 # yang sudah dinormalisasi, jadi hanya transformasi geometris yang dipakai.
 # Augmentasi HANYA diterapkan ke video yang masuk train split (split dilakukan
@@ -89,15 +89,15 @@ AUGMENTATION_CONFIG = {
 }
 
 
-# ─── PROCESSING SETTINGS ──────────────────────────────────────────────────────
+# --- PROCESSING SETTINGS ------------------------------------------------------
 VERBOSE = True
 
 
-# ─── LABEL MAP ────────────────────────────────────────────────────────────────
+# --- LABEL MAP ----------------------------------------------------------------
 LABEL_MAP = {i: f"label_{i}" for i in range(NUM_LABELS)}
 
 
-# ─── HELPERS ──────────────────────────────────────────────────────────────────
+# --- HELPERS ------------------------------------------------------------------
 def get_keypoint_path(signer_id: int, label_id: int, sample_id: int) -> Path:
     fname = f"signer{signer_id}_label{label_id}_sample{sample_id}.npy"
     return KEYPOINT_DIR / fname
@@ -116,7 +116,7 @@ def create_output_dirs():
         print(f"[Config] Keypoint Dir  : {KEYPOINT_DIR}")
         print(f"[Config] Sequence Dir  : {SEQUENCE_DIR}")
         print(f"[Config] Features/frame: {FEATURES_PER_FRAME} "
-              f"({NUM_HANDS} hands × {KEYPOINTS_PER_HAND} kpts × {COORDS_PER_KEYPOINT} coords)")
+              f"({NUM_HANDS} hands x {KEYPOINTS_PER_HAND} kpts x {COORDS_PER_KEYPOINT} coords)")
 
 
 if __name__ == "__main__":

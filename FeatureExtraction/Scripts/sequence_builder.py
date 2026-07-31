@@ -6,12 +6,12 @@ susun keypoint menjadi sequence fixed-length dan simpan sebagai .npz.
 - Input : keypoint .npy per video (output keypoint_extractor.py)
 - Output: train_sequences.npz, val_sequences.npz, test_sequences.npz
            X shape: (N, SEQUENCE_LENGTH, FEATURES_PER_FRAME) = (N, 30, 126)
-           y shape: (N,) int64 — label index
+           y shape: (N,) int64 -- label index
 
 Urutan proses per video (penting untuk mencegah data leakage):
 1. Split video (bukan sample) ke train/val/test, stratified per label.
 2. Augmentasi keypoint (flip/rotate/zoom) HANYA diterapkan ke video yang
-   masuk train — val/test selalu berisi keypoint asli (belum diaugmentasi).
+   masuk train -- val/test selalu berisi keypoint asli (belum diaugmentasi).
 3. Pad/crop tiap sequence (asli maupun augmented) ke SEQUENCE_LENGTH.
 
 Strategi panjang sequence:
@@ -43,7 +43,7 @@ from FeatureExtraction.Scripts.keypoint_augmentor import augment_sequence
 from FeatureExtraction.Scripts.video_split import stratified_video_split
 
 
-# ─── TEMPORAL RESIZE ─────────────────────────────────────────────────────────
+# --- TEMPORAL RESIZE ---------------------------------------------------------
 
 def pad_or_crop_sequence(
     keypoints: np.ndarray,
@@ -80,7 +80,7 @@ def pad_or_crop_sequence(
         return np.concatenate([keypoints, pad], axis=0)
 
 
-# ─── SPLIT BUILDER ───────────────────────────────────────────────────────────
+# --- SPLIT BUILDER -----------------------------------------------------------
 
 class SequenceBuilder:
     """
@@ -88,14 +88,14 @@ class SequenceBuilder:
     load keypoint tiap split, augmentasi video train, lalu simpan sebagai .npz.
 
     Split strategy: stratified_video_split() dari FeatureExtraction/Scripts/video_split.py
-    (seed = RANDOM_SEED) — fungsi SHARED yang sama dipakai Training/MViTv2/Scripts/mvit_dataset.py
+    (seed = RANDOM_SEED) -- fungsi SHARED yang sama dipakai Training/MViTv2/Scripts/mvit_dataset.py
     supaya video val/test CNNsa-BiLSTM dan MViTv2 identik (perbandingan apple-to-apple).
     Split dilakukan pada MANIFEST (semua video mentah), bukan pada video yang keypoint-nya
-    sudah berhasil diekstrak — video dengan keypoint hilang/gagal baru difilter setelah split,
+    sudah berhasil diekstrak -- video dengan keypoint hilang/gagal baru difilter setelah split,
     supaya hasil split tidak bergantung pada keberhasilan MediaPipe (yang notabene spesifik ke
     pipeline ini, tidak relevan untuk pipeline video mentah MViTv2).
 
-    Augmentasi keypoint (flip/rotate/zoom) HANYA diterapkan ke video yang masuk train — val/test
+    Augmentasi keypoint (flip/rotate/zoom) HANYA diterapkan ke video yang masuk train -- val/test
     selalu berisi keypoint asli (belum diaugmentasi), tidak ada leakage augmented data.
     """
 
@@ -252,7 +252,7 @@ class SequenceBuilder:
         print("-----------------------------------------------------------------")
 
 
-# ─── VERIFY ──────────────────────────────────────────────────────────────────
+# --- VERIFY ------------------------------------------------------------------
 
 def verify_sequences():
     """
