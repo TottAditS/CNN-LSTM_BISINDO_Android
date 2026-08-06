@@ -39,7 +39,7 @@ from FeatureExtraction.Config.feature_config import (
     get_keypoint_path, get_sequence_output_path,
     create_output_dirs,
 )
-from FeatureExtraction.Scripts.keypoint_augmentor import augment_sequence
+from FeatureExtraction.Scripts.keypoint_augmentor import augment_sequence, mix_sequences
 from FeatureExtraction.Scripts.video_split import stratified_video_split
 
 
@@ -110,12 +110,16 @@ class SequenceBuilder:
         with open(manifest_path, "r") as f:
             return json.load(f)
 
-    def _load_keypoints_for_items(self, items: List[Dict]) -> Tuple[List[np.ndarray], List[int], List[str]]:
+    def _load_keypoints_for_items(self, items: List[Dict]) -> Tuple[List[np.ndarray], List[int], List[str], List[int]]:
         """
         Load file keypoint .npy untuk sekumpulan item manifest (satu split).
         Item yang keypoint-nya belum ada / gagal diekstrak MediaPipe di-skip (dengan warning).
+
+        signer_id tiap item ikut dikembalikan (dulu tidak) -- dipakai _build_split() untuk
+        Signer-Mixup, yang perlu tahu SIAPA signer tiap sample supaya bisa mencampur sample
+        dari signer BERBEDA pada kelas yang sama.
         """
-        X_list, y_list, id_list = [], [], []
+        X_list, y_list, id_list, signer_list = [], [], [], []
         missing = 0
 
         for item in items:
@@ -138,20 +142,29 @@ class SequenceBuilder:
             X_list.append(kpts)
             y_list.append(label_id)
             id_list.append(vid_name)
+            signer_list.append(signer_id)
 
         if missing > 0:
             print(f"  [WARN] {missing} file keypoint tidak ditemukan (di-skip dari split ini).")
 
-        return X_list, y_list, id_list
+        return X_list, y_list, id_list, signer_list
 
     def _build_split(self, split_name: str, X_list: List[np.ndarray], y: List[int],
-                      ids: List[str]) -> Dict:
+                      ids: List[str], signers: List[int]) -> Dict:
         """
         Bangun array X/y/ids final untuk satu split.
-        Augmentasi hanya diterapkan jika split_name == "train".
+        Augmentasi (termasuk Signer-Mixup) hanya diterapkan jika split_name == "train".
         """
         aug_cfg = AUGMENTATION_CONFIG
         do_augment = split_name == "train" and aug_cfg.get("enabled", False)
+        mixup_count = aug_cfg.get("signer_mixup_count", 0) if do_augment else 0
+
+        # Lookup label -> signer -> list of kpts, dibangun SEKALI, dipakai Signer-Mixup untuk
+        # cari kandidat "signer lain, kelas sama" tiap item train. Cuma perlu kalau mixup aktif.
+        by_label_signer: Dict[int, Dict[int, List[np.ndarray]]] = {}
+        if mixup_count > 0:
+            for kpts, label, signer in zip(X_list, y, signers):
+                by_label_signer.setdefault(label, {}).setdefault(signer, []).append(kpts)
 
         X_out, y_out, id_out = [], [], []
 
@@ -168,6 +181,21 @@ class SequenceBuilder:
                         rng=self.aug_rng,
                     )
                     versions.append((f"aug_{a}", aug_kpts))
+
+            if mixup_count > 0:
+                own_signer = signers[i]
+                candidates_by_signer = by_label_signer.get(label, {})
+                other_signers = [s for s in candidates_by_signer if s != own_signer]
+                lo, hi = aug_cfg.get("signer_mixup_alpha_range", (0.3, 0.7))
+                for m in range(mixup_count):
+                    if not other_signers:
+                        break  # kelas ini di train split cuma ada 1 signer -- tidak ada pasangan
+                    other_signer = other_signers[self.aug_rng.integers(len(other_signers))]
+                    pool = candidates_by_signer[other_signer]
+                    other_kpts = pool[self.aug_rng.integers(len(pool))]
+                    alpha = self.aug_rng.uniform(lo, hi)
+                    mixed = mix_sequences(kpts, other_kpts, alpha)
+                    versions.append((f"mixup_{m}", mixed))
 
             for version_name, seq in versions:
                 X_out.append(pad_or_crop_sequence(seq, SEQUENCE_LENGTH))
@@ -212,16 +240,17 @@ class SequenceBuilder:
 
         aug_cfg = AUGMENTATION_CONFIG
         print(f"[SequenceBuilder] Augmentasi: enabled={aug_cfg['enabled']}, "
-              f"teknik={aug_cfg['techniques']}, multiplier={aug_cfg['augment_multiplier']}x "
+              f"teknik={aug_cfg['techniques']}, multiplier={aug_cfg['augment_multiplier']}x, "
+              f"signer_mixup_count={aug_cfg.get('signer_mixup_count', 0)}x "
               f"(hanya diterapkan ke train)")
 
         # 2. Load keypoint per split, lalu augment (train only) + temporal resize
         print("[SequenceBuilder] Loading keypoint files...")
         splits = {}
         for split_name, items in [("train", train_items), ("val", val_items), ("test", test_items)]:
-            X_list, y, ids = self._load_keypoints_for_items(items)
+            X_list, y, ids, signers = self._load_keypoints_for_items(items)
             print(f"  [{split_name:5s}] {len(X_list)} video keypoint loaded")
-            splits[split_name] = self._build_split(split_name, X_list, y, ids)
+            splits[split_name] = self._build_split(split_name, X_list, y, ids, signers)
 
         # 3. Simpan .npz per split
         for split_name, data in splits.items():
