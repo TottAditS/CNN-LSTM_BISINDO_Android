@@ -6,7 +6,7 @@
 ![CUDA](https://img.shields.io/badge/CUDA-12.8-green)
 ![Android](https://img.shields.io/badge/Android-API%2026+-brightgreen)
 ![ONNX](https://img.shields.io/badge/Export-ONNX-purple)
-![Status](https://img.shields.io/badge/Status-In%20Development-yellow)
+![Status](https://img.shields.io/badge/Status-Selesai-brightgreen)
 
 ---
 
@@ -76,16 +76,17 @@ Input Keypoints (30 frames × 126 features)
 │    Scan Video → Blur Filter → Resize (224×224)           │
 │    Uniform Sampling (15fps)                              │
 │    Output: frame_manifest.json + frames.npy per video    │
-│    Notebook: PreProcessing/PreProcess.ipynb               │
+│    Notebook: PreProcessing/PreProcess.ipynb              │
 └──────────────────────────────────────────────────────────┘
          │
          ▼
 ┌──────────────────────────────────────────────────────────┐
 │ 2. FEATURE EXTRACTION                                    │
 │    MediaPipe Hands → Palm Detection → 21 Keypoints       │
-│    × 3 (x,y,z) × 2 tangan = 126 features/frame          │
-│    Split Train/Val/Test → Augmentation (flip/rotate/zoom,│
-│    train saja) → Temporal Pad/Crop → 30 frame fixed      │
+│    × 3 (x,y,z) × 2 tangan = 126 features/frame           │
+│    Split Train/Val/Test → Augmentation (6 teknik         │
+│    + jitter/speed/dropout + Signer-Mixup, train saja) →  │
+│    Temporal Pad/Crop → 30 frame fixed                    │
 │    Output: train/val/test_sequences.npz  (N, 30, 126)    │
 │    Notebook: FeatureExtraction/FeatureExtraction.ipynb   │
 └──────────────────────────────────────────────────────────┘
@@ -103,34 +104,35 @@ Input Keypoints (30 frames × 126 features)
 ┌──────────────────────────────────────────────────────────┐
 │ 3b. TRAINING — MViTv2 (baseline transformer)             │
 │    Input: raw video clip (16 frame, 224×224) dari Step 1 │
-│    Fine-tune dari bobot pretrained Kinetics-400           │
-│    Notebook: Training/MViTv2/TrainMViT.ipynb              │
+│    Fine-tune dari bobot pretrained Kinetics-400          │
+│    Notebook: Training/MViTv2/TrainMViT.ipynb             │
 └──────────────────────────────────────────────────────────┘
          │
          ▼
 ┌──────────────────────────────────────────────────────────┐
 │ 3c. PERBANDINGAN MODEL                                   │
 │    Training/Scripts/comparator.py — video val/test SAMA  │
-│    untuk kedua model (split di-share), tabel akurasi/F1/  │
+│    untuk kedua model (split di-share), tabel akurasi/F1/ │
 │    latensi/ukuran model side-by-side                     │
 └──────────────────────────────────────────────────────────┘
          │
          ▼
 ┌──────────────────────────────────────────────────────────┐
-│ 4. EXPORT KE ONNX ✅ (kedua model, PC saja)                │
-│    PyTorch → ONNX, validasi output PyTorch vs ONNX RT     │
-│    Notebook: Export/ExportModels.ipynb                    │
-│    cnnsa_bilstm.onnx (14.6MB)  — kandidat Android          │
-│    mvit_v2.onnx (132MB)        — pembanding riset saja     │
+│ 4. EXPORT KE ONNX (kedua model, PC saja)                 │
+│    PyTorch → ONNX, validasi output PyTorch vs ONNX RT    │
+│    Notebook: Export/ExportModels.ipynb                   │
+│    cnnsa_bilstm.onnx (14.6MB)  — kandidat Android        │
+│    mvit_v2.onnx (132MB)        — pembanding riset saja   │
 └──────────────────────────────────────────────────────────┘
          │
          ▼
 ┌──────────────────────────────────────────────────────────┐
-│ 5. DEPLOYMENT ANDROID (belum diimplementasi)               │
-│    cnnsa_bilstm.onnx → Android APK                        │
-│    Real-time inference via CameraX + MediaPipe on-device  │
-│    (MViTv2 tidak dipakai — terlalu besar/lambat untuk      │
-│     mobile, lihat bagian Model Evaluation)                 │
+│ 5. DEPLOYMENT ANDROID (repo terpisah)                    │
+│    cnnsa_bilstm.onnx → Android APK (Kotlin, CameraX +    │
+│    MediaPipe Tasks + ONNX Runtime Mobile), sudah jalan   │
+│    end-to-end & diverifikasi di device fisik             │
+│    (MViTv2 IKUT diintegrasikan sebagai pembanding di app │
+│     lihat repo BISINDO_ANDROID_APP)                      │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -138,34 +140,31 @@ Input Keypoints (30 frames × 126 features)
 
 ## 📱 Android App Flow
 
+Implementasi aktual (repo terpisah `BISINDO_ANDROID_APP`, lihat README repo itu untuk detail
+lengkap) — Menu → Kamera (rekam & bandingkan) atau Menu → Riwayat (lihat sesi lama, tabel Evaluasi,
+ekspor JSON):
+
 ```
-┌──────────────────────────┐
-│  ┌────────────────────┐  │
-│  │                    │  │
-│  │   [LIVE CAMERA]    │  │
-│  │                    │  │
-│  │    hand tracked    │  │
-│  │  • landmark dots • │  │
-│  └────────────────────┘  │
-│                          │
-│  Status: Ready...        │
-│  ████████░░  24/30       │
-│                          │
-│  Result:  TERIMA KASIH   │
-│                          │
-│  History:                │
-│  HALO | APA | KABAR      │
-│                          │
-│     [  RECORD  ]         │
-└──────────────────────────┘
+Menu (MainActivity)
+ ├─ Buka Kamera → CameraActivity: preview + overlay skeleton tangan LIVE,
+ │  tombol "Rekam (5 dtk)" → tangkap seluruh durasi, jalankan CNNsa-BiLSTM di
+ │  10 jendela geser sepanjang rekaman (ambil confidence tertinggi sebagai
+ │  jawaban akhir) BERBARENGAN dengan MViTv2 (pembanding) atas klip yang sama,
+ │  tampilkan gloss + confidence + latency kedua model berdampingan
+ └─ Riwayat → HistoryActivity: daftar sesi tersimpan ("Sesi N: <gloss>")
+     ├─ tap sesi → HistoryPlaybackActivity: flipbook frame + unduh sequence.json
+     └─ tombol Evaluasi → EvaluationActivity: tabel perbandingan CNNsa-BiLSTM
+        (breakdown 10 jendela) vs MViTv2, latency, CPU%/RAM, grafik latensi
 ```
 
-**Alur Inferensi Android:**
-1. User tekan **RECORD**
-2. CameraX merekam frame kamera
-3. MediaPipe Hands ekstrak 126 keypoint per frame (secara langsung di Android)
-4. Setelah 30 frame terkumpul → ONNX Runtime inferensi
-5. Tampil **1 kata** hasil terjemahan
+**Alur Inferensi Android (per sesi rekam):**
+1. User tekan **Rekam** → kamera + overlay skeleton tangan aktif live selama 5 detik
+2. MediaPipe Hands ekstrak 126 keypoint per frame on-device (dengan koreksi rotasi +
+   handedness — lihat catatan root-cause di README `BISINDO_ANDROID_APP`)
+3. Seluruh rekaman dipotong jadi 10 jendela 30-frame yang tersebar merata (bukan satu jendela
+   di tengah) → CNNsa-BiLSTM jalan di ke-10nya (~70-90ms total), jendela confidence tertinggi
+   jadi jawaban akhir; MViTv2 jalan sekali atas klip 16-frame yang sama sebagai pembanding
+4. Tampil gloss + confidence + latency **kedua model**, tersimpan ke Riwayat untuk ditinjau ulang
 
 ---
 
@@ -247,7 +246,7 @@ CNN-LSTM_BISINDO_Android/
 | Jumlah Signer | 5 signer (`signer0`–`signer4`) — `signer0` baru merekam 12/32 kelas |
 | Sample per Kelas | Bervariasi (10 atau 15 per signer) |
 | Split | 70% Train / 15% Val / 15% Test (per label, sebelum augmentasi) |
-| Augmentasi | Hanya di train split, level keypoint (flip/rotate/zoom), 3x data train |
+| Augmentasi | Hanya di train split, level keypoint: 6 teknik + Signer-Mixup (lihat tabel di bawah), total 7x data train |
 
 > ⚠️ Target awal riset adalah 40 kata / 4 signer (lihat tabel Training Config). Dataset yang
 > sudah terkumpul saat ini baru 32 kelas dari 5 signer. `NUM_LABELS`/`NUM_CLASSES` di semua
@@ -269,9 +268,19 @@ CNN-LSTM_BISINDO_Android/
 |---|---|
 | Sequence Length | 30 frames |
 | Split | 70% Train / 15% Val / 15% Test (stratified per label, **sebelum** augmentasi) |
-| Augmentasi | Flip, Rotation, Zoom — level keypoint, **hanya train split** |
-| Augment Multiplier | 2 augmented + 1 original = 3x data train |
+| Augmentasi geometrik | Horizontal flip (p=0.5), rotation (±20°), zoom (0.8–1.2×) — level keypoint |
+| Augmentasi tambahan | Jitter Gaussian (std 0.02, simulasi noise deteksi MediaPipe), temporal speed (0.85–1.15×), hand dropout (p=0.15, maks 30% frame per sequence) |
+| Augment Multiplier | 1 original + 4 augmented = 5x data train |
+| Signer-Mixup | Interpolasi linear (alpha 0.3–0.7) antar 2 sequence signer berbeda pada kelas sama, 2x tambahan per video train — mengisi celah antar 5 signer asli, bukan cuma memvariasikan 1 signer |
+| Total data train | **7x** data original (1 original + 4 augmented + 2 signer-mixup) |
 | Output Format | `.npz` (NumPy compressed) |
+
+> 📌 Range augmentasi diperlebar + 3 teknik baru (jitter/temporal_speed/hand_dropout) + Signer-Mixup
+> ditambahkan setelah ditemukan gap besar antara akurasi test set desktop dan pengujian live di
+> aplikasi Android (root cause sebenarnya ternyata bug handedness+rotasi di sisi Android, lihat
+> `BISINDO_ANDROID_APP/PROGRESS.md` — tapi augmentasi yang lebih kuat ini tetap dipertahankan
+> karena hasil akhirnya (95,31%, lihat bagian Model Evaluation) masih di atas baseline 94,53%
+> sebelum augmentasi diperkuat). Detail lengkap di komentar `FeatureExtraction/Config/feature_config.py`.
 
 ---
 
@@ -301,25 +310,28 @@ video val/test identik untuk kedua model):
 
 | Metrik | CNNsa-BiLSTM (Proposed) | MViTv2 (Baseline) |
 |---|---|---|
-| Accuracy | **94.53%** | 99.22% |
-| F1-Score (weighted) | 94.51% | 99.22% |
-| Precision (weighted) | 94.85% | 99.31% |
-| Recall (weighted) | 94.53% | 99.22% |
-| Inference Time (CPU) | **3.24 ms/sequence** | 400.07 ms/clip |
-| Model Size | **43.94 MB** | 262.26 MB |
-| Total Parameters | 3.84 juta | 34.25 juta |
-| Android Compatible | ✅ | ❌ (ukuran & latensi jauh di luar budget mobile) |
+| Accuracy | **95.31%** | 99.22% |
+| F1-Score (weighted) | 95.27% | 99.22% |
+| Precision (weighted) | 95.56% | 99.31% |
+| Recall (weighted) | 95.31% | 99.22% |
+| Inference Time (CPU) | **7.42 ms/sequence** | 400.07 ms/clip |
+| Model Size (checkpoint) | **43.94 MB** (ONNX 14.65 MB) | 262.26 MB (ONNX ~143 MB) |
+| Total Parameters | 3.84 juta | 34.25 juta (17.22 juta trainable) |
+| Android Compatible | ✅ | ✅ (diintegrasikan sebagai pembanding di app, bukan model utama) |
 
-> 📌 **Target awal tercapai**: CNNsa-BiLSTM mencapai akurasi >90% (94.53%) dengan latency
-> <100ms (3.24ms) — sesuai target di bagian Overview.
+> 📌 **Target awal tercapai**: CNNsa-BiLSTM mencapai akurasi >90% (95.31%) dengan latency
+> <100ms (7.42ms/sequence) — sesuai target di bagian Overview.
 >
-> **Trade-off akurasi vs efisiensi**: MViTv2 unggul akurasi (+4.7 poin) karena model 9x lebih
+> **Trade-off akurasi vs efisiensi**: MViTv2 unggul akurasi (+3.9 poin) karena model 9x lebih
 > besar dan melihat raw video langsung (bukan keypoint), sejalan dengan hasil paper referensi
-> (MViTv2 menang di setting signer-dependent). Tapi CNNsa-BiLSTM **~123x lebih cepat inferensi**
-> dan **~6x lebih kecil** — inilah alasan utama CNNsa-BiLSTM yang dipilih untuk deployment
-> Android, bukan MViTv2 yang jauh di luar budget model mobile.
+> (MViTv2 menang di setting signer-dependent). Tapi CNNsa-BiLSTM **~54x lebih cepat inferensi**
+> dan **~6x lebih kecil** — inilah alasan utama CNNsa-BiLSTM yang dipilih sebagai model utama
+> deployment Android (real-time, 10 jendela geser per sesi rekam tetap ~70-90ms total, lihat
+> repo `BISINDO_ANDROID_APP`), sementara MViTv2 tetap diintegrasikan sebagai pembanding
+> akurasi-vs-efisiensi langsung di dalam aplikasi (bukan "tidak dipakai" seperti draft awal
+> rencana — lihat README `BISINDO_ANDROID_APP` untuk detail perbandingan on-device).
 >
-> CNNsa-BiLSTM: training 34 epoch (early stopping dari max 100), ~48 detik di RTX 5060.
+> CNNsa-BiLSTM: training dengan dataset augmentasi final (7x, lihat bagian Feature Extraction).
 > MViTv2: training 30 epoch penuh (fine-tune dari Kinetics-400 pretrained), ~36 menit di RTX 5060.
 
 ---
@@ -448,12 +460,18 @@ Export kedua checkpoint ke ONNX + validasi otomatis (bandingkan output PyTorch v
 pakai sample test asli). Detail lengkap (kenapa dua model butuh exporter ONNX yang beda, kenapa
 validasi CPU bukan GPU, dst) ada di `Export/Export Setup.md`. Output: `Export/Output/onnx/`.
 
-### Belum Ada — Langkah Selanjutnya (di luar pipeline ini)
-Aplikasi Android **belum diimplementasikan**. Setelah `cnnsa_bilstm.onnx` di-export & tervalidasi
-(Step 7), langkah berikutnya adalah integrasi ke project Android baru (CameraX + ONNX Runtime
-Mobile + MediaPipe Hands on-device) — belum ada kodenya di repo ini. `mvit_v2.onnx` **tidak**
-diintegrasikan ke Android (terlalu besar/lambat untuk mobile), cuma untuk kelengkapan
-dokumentasi/pembanding.
+### Step 8 — Aplikasi Android (repo terpisah, sudah selesai)
+Aplikasi Android native Kotlin ada di repo terpisah **`BISINDO_ANDROID_APP`** (CameraX + MediaPipe
+Tasks + ONNX Runtime Mobile, sepenuhnya offline/on-device). Kedua model `cnnsa_bilstm.onnx` (model
+utama, real-time) **dan** `mvit_v2.onnx` (diintegrasikan sebagai pembanding akurasi-vs-efisiensi
+langsung di app, bukan cuma dokumentasi) di-copy manual dari `Export/Output/onnx/` ke situ — tidak
+ada dependency source code/submodule ke repo ini. App sudah tervalidasi berjalan di device fisik
+(Poco M4 Pro): rekam gestur 5 detik → CNNsa-BiLSTM dijalankan di 10 jendela geser sepanjang
+rekaman (menghindari kebutuhan timing presisi dari pengguna) sekaligus MViTv2 atas klip yang sama
+→ gloss + confidence + latency kedua model ditampilkan berdampingan, tersimpan ke Riwayat untuk
+ditinjau ulang / diekspor sebagai JSON. Detail lengkap (fitur, arsitektur kode, root-cause
+diagnosis bug handedness+rotasi yang sempat bikin CNNsa-BiLSTM gagal total saat live testing, dan
+seluruh riwayat keputusan) ada di `BISINDO_ANDROID_APP/README.md` dan `PROGRESS.md`.
 
 ---
 
@@ -502,14 +520,15 @@ pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 \
 
 ## 👤 Author
 
-**[Nama Kamu]**
-Thesis Project — [Nama Universitas]
-[Tahun]
+**Totti**
+Thesis Project — BINUS
+2026-2027
 
 ---
 
 > ✅ **Status**: Pipeline lengkap — PreProcessing → FeatureExtraction → Training (CNNsa-BiLSTM +
 > baseline MViTv2) → Evaluasi → Perbandingan → **Export ke ONNX** — **sudah dijalankan
 > end-to-end di dataset asli (1600 video)** dan hasilnya sudah ada (lihat bagian Model
-> Evaluation & `Export/Export Setup.md`). Aplikasi Android **belum diimplementasikan** — itu
-> langkah berikutnya.
+> Evaluation & `Export/Export Setup.md`). **Aplikasi Android juga sudah selesai** (repo terpisah
+> `BISINDO_ANDROID_APP`), tervalidasi berjalan di device fisik dengan kedua model terintegrasi
+> untuk perbandingan langsung — lihat bagian "Step 8 — Aplikasi Android" di atas.
