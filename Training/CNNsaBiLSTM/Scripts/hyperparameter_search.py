@@ -20,6 +20,13 @@ Tiap run berisi (per trial, 11x per run):
     history/<nama_trial>.json         array lengkap per-epoch (train/val loss & acc, lr)
     search_results.json               ringkasan SEMUA trial di run itu (buat ranking cepat)
 
+Di akhir run, generate_search_report() juga menyimpan (supaya tidak perlu buka TensorBoard
+untuk laporan/thesis -- cukup lihat file statis ini):
+    search_summary_table.csv          tabel ringkasan (sama isinya dengan search_results.json,
+                                       format CSV siap ditempel ke Word/Excel)
+    search_comparison_chart.png       bar chart val accuracy semua trial (diurutkan),
+                                       baseline ditandai beda warna
+
 Cara pakai:
     Buka file ini di PyCharm (working directory = root project), klik Run.
     Semua trial jalan berurutan dalam SATU proses -- tidak perlu dipencet satu-satu.
@@ -229,6 +236,75 @@ def run_trial(trial_cfg: dict, device: torch.device, train_ds, val_ds) -> dict:
     }
 
 
+def generate_search_report(run_dir: Path, results: list[dict]) -> None:
+    """Simpan tabel ringkasan (CSV) + bar chart val accuracy semua trial ke run_dir.
+    Bisa dipanggil dari main() di akhir run BARU, atau standalone terhadap search_results.json
+    dari run LAMA (lihat backfill_report() di bawah) -- tidak butuh training ulang."""
+    import csv
+
+    results_sorted = sorted(results, key=lambda r: r["best_val_acc"], reverse=True)
+
+    # --- tabular: CSV ---
+    csv_path = run_dir / "search_summary_table.csv"
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["trial", "dropout", "weight_decay", "hidden_size", "learning_rate",
+                          "best_val_acc_pct", "train_acc_at_best_pct", "gap_points", "best_epoch"])
+        for r in results_sorted:
+            hp = r["hyperparams"]
+            writer.writerow([
+                r["name"], hp["dropout"], hp["weight_decay"], hp["hidden_size"], hp["learning_rate"],
+                round(r["best_val_acc"] * 100, 2), round(r["train_acc_at_best"] * 100, 2),
+                round((r["train_acc_at_best"] - r["best_val_acc"]) * 100, 2), r["best_epoch"],
+            ])
+    print(f"[HyperparameterSearch] Tabel ringkasan disimpan ke: {csv_path}")
+
+    # --- visual: bar chart val accuracy per trial ---
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("  [WARN] matplotlib tidak terinstall, skip chart.")
+        return
+
+    names = [r["name"] for r in results_sorted]
+    val_accs = [r["best_val_acc"] * 100 for r in results_sorted]
+    colors = ["#d62728" if n == "baseline" else "#1f77b4" for n in names]
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    bars = ax.bar(range(len(names)), val_accs, color=colors)
+    for bar, v in zip(bars, val_accs):
+        ax.annotate(f"{v:.2f}%", xy=(bar.get_x() + bar.get_width() / 2, v),
+                    xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8)
+
+    ax.set_xticks(range(len(names)))
+    ax.set_xticklabels(names, rotation=40, ha="right")
+    ax.set_ylabel("Best Validation Accuracy (%)")
+    ax.set_ylim(min(val_accs) - 3, max(val_accs) + 3)
+    ax.set_title("Hyperparameter Search -- CNNsa-BiLSTM (11 trial, diurutkan)")
+    ax.grid(axis="y", alpha=0.3)
+
+    import matplotlib.patches as mpatches
+    ax.legend(handles=[mpatches.Patch(color="#d62728", label="baseline (konfigurasi produksi lama)"),
+                        mpatches.Patch(color="#1f77b4", label="trial variasi hyperparameter")])
+    fig.tight_layout()
+
+    chart_path = run_dir / "search_comparison_chart.png"
+    fig.savefig(chart_path, dpi=150)
+    plt.close(fig)
+    print(f"[HyperparameterSearch] Chart perbandingan trial disimpan ke: {chart_path}")
+
+
+def backfill_report_from_existing_run(run_dir: Path) -> None:
+    """Generate search_summary_table.csv + search_comparison_chart.png dari search_results.json
+    yang SUDAH ADA di run_dir, TANPA training ulang. Dipakai untuk run lama yang belum punya
+    laporan visual (mis. dibuat sebelum generate_search_report() ada)."""
+    results_path = run_dir / "search_results.json"
+    with open(results_path) as f:
+        data = json.load(f)
+    results = data["trials"] if isinstance(data, dict) and "trials" in data else data
+    generate_search_report(run_dir, results)
+
+
 def main():
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,6 +336,8 @@ def main():
     for r in results_sorted:
         print(f"{r['name']:<22} {r['best_val_acc']*100:8.2f}% {r['train_acc_at_best']*100:9.2f}% "
               f"{r['gap_train_val']*100:6.2f}p {r['best_epoch']:6d}")
+
+    generate_search_report(RUN_DIR, results)
 
     print(f"\nHasil lengkap  : {RESULTS_PATH}")
     print(f"Checkpoint     : {CHECKPOINT_DIR}")

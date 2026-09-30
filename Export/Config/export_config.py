@@ -45,6 +45,7 @@ MVIT_CHECKPOINT_PATH  = MVIT_CHECKPOINT_DIR / MVIT_CHECKPOINT_CONFIG["filename"]
 # --- OUTPUT ONNX ------------------------------------------------------------
 EXPORT_OUTPUT_DIR = ROOT / "Export" / "Output"
 ONNX_DIR           = EXPORT_OUTPUT_DIR / "onnx"
+EXPORT_CHARTS_DIR  = EXPORT_OUTPUT_DIR / "charts"
 
 CNNSA_ONNX_PATH = ONNX_DIR / "cnnsa_bilstm.onnx"
 MVIT_ONNX_PATH  = ONNX_DIR / "mvit_v2.onnx"
@@ -78,6 +79,7 @@ MVIT_INPUT_SHAPE  = (BATCH_SIZE, 3, CLIP_LENGTH, FRAME_SIZE[0], FRAME_SIZE[1])  
 
 def create_output_dirs():
     ONNX_DIR.mkdir(parents=True, exist_ok=True)
+    EXPORT_CHARTS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"[ExportConfig] ROOT           : {ROOT}")
     print(f"[ExportConfig] ONNX Output Dir: {ONNX_DIR}")
 

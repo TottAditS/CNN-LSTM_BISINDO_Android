@@ -28,7 +28,9 @@ ROOT = find_project_root()
 
 TRAINING_OUTPUT_DIR = ROOT / "Training" / "Output"
 RESULTS_DIR = TRAINING_OUTPUT_DIR / "results"
+CHARTS_DIR = TRAINING_OUTPUT_DIR / "charts"
 
 
 def create_results_dir():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
