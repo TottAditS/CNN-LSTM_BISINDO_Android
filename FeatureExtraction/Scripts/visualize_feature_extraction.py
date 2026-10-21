@@ -1,11 +1,8 @@
 """
-FeatureExtraction/Scripts/visualize_feature_extraction.py
-=============================================================
-Script dokumentasi (bukan bagian pipeline produksi): menghasilkan visual hasil
-deteksi MediaPipe Hands + efek normalisasi keypoint, memakai kelas dan
-parameter yang PERSIS SAMA dengan keypoint_extractor.py + feature_config.py.
+Documentation figures for the feature extraction step (not part of the pipeline).
 
-Output:
+Shows MediaPipe Hands detections and the effect of keypoint normalization,
+using the same class and parameters as keypoint_extractor.py. Writes:
     FeatureExtraction/Output/charts/feature_extraction_landmarks.png
     FeatureExtraction/Output/charts/feature_extraction_normalization.png
 """
@@ -38,7 +35,7 @@ mp_styles = mp.solutions.drawing_styles
 
 
 def get_preprocessed_frame(frame_index: int) -> np.ndarray:
-    """Same steps as PreProcessing/Scripts/frame_extractor.py: blur -> resize -> RGB."""
+    """Same steps as PreProcessing/Scripts/frame_extractor.py: blur -> resize."""
     cap = cv2.VideoCapture(str(SAMPLE_VIDEO))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_index = min(frame_index, total - 1)
@@ -46,10 +43,10 @@ def get_preprocessed_frame(frame_index: int) -> np.ndarray:
     ret, frame = cap.read()
     cap.release()
     if not ret:
-        raise RuntimeError(f"Gagal membaca frame {frame_index}")
+        raise RuntimeError(f"Failed to read frame {frame_index}")
     frame = cv2.GaussianBlur(frame, tuple(frame_cfg["blur_kernel"]), frame_cfg["blur_sigma"])
     frame = cv2.resize(frame, (frame_cfg["resize"][1], frame_cfg["resize"][0]))
-    return frame  # BGR, 224x224 -- exactly what keypoint_extractor.extract_frame expects
+    return frame  # BGR, 224x224, as expected by KeypointExtractor.extract_frame
 
 
 def build_landmark_figure(frame_bgr: np.ndarray):
@@ -76,14 +73,14 @@ def build_landmark_figure(frame_bgr: np.ndarray):
 
     fig, axes = plt.subplots(1, 2, figsize=(9, 5))
     axes[0].imshow(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-    axes[0].set_title("Input: Frame Setelah Pra-pemrosesan\n(224x224, output PreProcessing)", fontsize=10)
+    axes[0].set_title("Input: preprocessed frame\n(224x224)", fontsize=10)
     axes[0].axis("off")
 
     axes[1].imshow(annotated)
-    axes[1].set_title(f"Output MediaPipe Hands\n{n_hands} tangan terdeteksi, 21 landmark/tangan", fontsize=10)
+    axes[1].set_title(f"MediaPipe Hands output\n{n_hands} hand(s) detected, 21 landmarks per hand", fontsize=10)
     axes[1].axis("off")
 
-    fig.suptitle(f"Ekstraksi Keypoint MediaPipe Hands -- Contoh: {SAMPLE_VIDEO.name}", fontsize=12)
+    fig.suptitle(f"Keypoint extraction with MediaPipe Hands, sample {SAMPLE_VIDEO.name}", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     out_path = OUT_DIR / "feature_extraction_landmarks.png"
     fig.savefig(out_path, dpi=150)
@@ -93,14 +90,13 @@ def build_landmark_figure(frame_bgr: np.ndarray):
 
 
 def build_normalization_figure(frame_bgr: np.ndarray):
-    """Use the ACTUAL KeypointExtractor class (production code) to get both the raw
-    and normalized keypoint vector for one frame, then visualize the normalization effect."""
+    """Plot the raw and normalized keypoints of one hand, computed with KeypointExtractor."""
     extractor = KeypointExtractor()
     frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     results = extractor.hands.process(frame_rgb)
 
     if not results.multi_hand_landmarks:
-        print("[WARN] tidak ada tangan terdeteksi pada frame ini, skip normalization figure")
+        print("[WARN] no hand detected in this frame, skipping the normalization figure")
         extractor.close()
         return
 
@@ -113,17 +109,17 @@ def build_normalization_figure(frame_bgr: np.ndarray):
 
     axes[0].scatter(raw_kpts[:, 0], -raw_kpts[:, 1], c=range(KEYPOINTS_PER_HAND), cmap="viridis", s=40)
     axes[0].scatter(raw_kpts[WRIST_IDX, 0], -raw_kpts[WRIST_IDX, 1], c="red", s=80, marker="x", label="wrist (idx 0)")
-    axes[0].set_title("Sebelum Normalisasi\n(koordinat relatif frame, 0-1)", fontsize=10)
+    axes[0].set_title("Before normalization\n(image coordinates, 0-1)", fontsize=10)
     axes[0].set_aspect("equal")
     axes[0].legend(fontsize=8)
 
     axes[1].scatter(norm_kpts[:, 0], -norm_kpts[:, 1], c=range(KEYPOINTS_PER_HAND), cmap="viridis", s=40)
     axes[1].scatter(0, 0, c="red", s=80, marker="x", label="wrist (origin)")
-    axes[1].set_title("Sesudah Normalisasi\n(relatif wrist, skala wrist->MCP9)", fontsize=10)
+    axes[1].set_title("After normalization\n(relative to wrist, scaled by wrist-MCP9 distance)", fontsize=10)
     axes[1].set_aspect("equal")
     axes[1].legend(fontsize=8)
 
-    fig.suptitle("Efek Normalisasi Keypoint (21 titik, 1 tangan)", fontsize=12)
+    fig.suptitle("Effect of keypoint normalization (21 landmarks, one hand)", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     out_path = OUT_DIR / "feature_extraction_normalization.png"
     fig.savefig(out_path, dpi=150)

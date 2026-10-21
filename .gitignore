@@ -1,10 +1,14 @@
+# Dataset and derived data (download WL-BISINDO separately, see README)
 /Datasets
 
-# Training outputs (checkpoints, logs, evaluation results) — auto-generated, bisa besar (>100MB)
+# Training outputs: checkpoints, logs, evaluation results
 /Training/Output/
 
-# Export outputs (file .onnx / .onnx.data) — auto-generated, bisa besar (mvit_v2.onnx.data ~140MB)
+# ONNX exports (mvit_v2.onnx.data alone is about 140 MB)
 /Export/Output/
+
+# Screen recordings of the live tests (contain the signer's face)
+/AndroidEvaluation/live_recordings/
 
 # Python
 __pycache__/
@@ -13,5 +17,9 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-# PyTorch pretrained weight cache (kalau ada yang download ke dalam repo, bukan ~/.cache)
+# Pretrained weight caches
 *.pth
+
+# IDE and tool settings
+.idea/
+.vscode/

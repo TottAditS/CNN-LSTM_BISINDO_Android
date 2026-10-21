@@ -1,16 +1,10 @@
 """
-FeatureExtraction/Scripts/video_split.py
-==========================================
-Split video (bukan sample) ke train/val/test, stratified per label -- dipakai
-BERSAMA oleh dua pipeline yang beda modalitas data tapi harus dibandingkan di
-video val/test yang SAMA PERSIS:
-- FeatureExtraction/Scripts/sequence_builder.py  (keypoint, untuk CNNsa-BiLSTM)
-- Training/MViTv2/Scripts/mvit_dataset.py         (raw video frame, untuk MViTv2)
+Video-level train/val/test split, stratified by label.
 
-Kedua pipeline memanggil stratified_video_split() dengan seed & rasio yang sama
-(dari FeatureExtraction/Config/feature_config.py), jadi video yang jadi val/test
-untuk CNNsa-BiLSTM juga video yang sama persis jadi val/test untuk MViTv2 --
-supaya perbandingan akurasi kedua model apple-to-apple.
+Shared by both pipelines so that CNNsa-BiLSTM (keypoints, sequence_builder.py)
+and MViTv2 (RGB frames, mvit_dataset.py) are evaluated on exactly the same
+validation and test videos. Both call stratified_video_split() with the seed
+and ratios from FeatureExtraction/Config/feature_config.py.
 """
 
 from typing import Dict, List, Tuple
@@ -27,16 +21,15 @@ def stratified_video_split(
     seed: int,
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
-    Split video-level (satu manifest item = satu video), stratified per label_idx.
+    Split manifest items (one item = one video), stratified by label_idx.
 
     Args:
-        manifest   : list item dari frame_manifest.json (tiap item punya "label_idx")
-        train/val/test_ratio: proporsi split, harus jumlah ~1.0
-        seed       : random seed (RandomState) untuk reproducibility
+        manifest   : items from frame_manifest.json, each with "label_idx"
+        train/val/test_ratio: split proportions, summing to about 1.0
+        seed       : RandomState seed
 
     Returns:
-        (train_items, val_items, test_items) -- masing-masing subset dari manifest,
-        urutan asli tiap item dipertahankan.
+        (train_items, val_items, test_items), subsets of the manifest
     """
     rng = np.random.RandomState(seed)
 
@@ -52,7 +45,7 @@ def stratified_video_split(
         n = len(indices)
         n_train = max(1, int(n * train_ratio))
         n_val = max(1, int(n * val_ratio))
-        # Sisanya masuk test
+        # the remainder goes to test
 
         train_idx.extend(indices[:n_train].tolist())
         val_idx.extend(indices[n_train : n_train + n_val].tolist())

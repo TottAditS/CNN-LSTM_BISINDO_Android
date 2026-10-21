@@ -1,23 +1,16 @@
 """
-Training/Scripts/comparator.py
-==============================
-Script pembanding untuk membandingkan CNNsa-BiLSTM (proposed, Training/CNNsaBiLSTM/)
-vs MViTv2 (baseline transformer, Training/MViTv2/). Model-agnostic: cukup baca dua
-file *_evaluation_summary.json dari RESULTS_DIR (shared_config.py) yang ditulis
-masing-masing evaluator, tidak import apapun spesifik ke satu model.
+Compares CNNsa-BiLSTM and MViTv2 from their *_evaluation_summary.json files.
 
-Selain print ke console, script ini juga MENYIMPAN hasilnya:
-- Tabular : RESULTS_DIR / "model_comparison_summary.json"
-- Visual  : CHARTS_DIR / "metrics_comparison.png" (bar chart Accuracy/Precision/Recall/F1)
-            CHARTS_DIR / "training_curves_comparison.png" (kurva loss/accuracy kedua model,
-            dibaca dari train_history.json & mvit_v2_train_history.json di RESULTS_DIR)
+Outputs:
+- RESULTS_DIR / "model_comparison_summary.json"
+- CHARTS_DIR  / "metrics_comparison.png"         (accuracy, precision, recall, F1)
+- CHARTS_DIR  / "training_curves_comparison.png" (loss and accuracy curves of both models)
 """
 
 import sys
 import json
 from pathlib import Path
 
-# Setup path agar bisa import modul dari root
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from Training.Config.shared_config import RESULTS_DIR, CHARTS_DIR, create_results_dir
@@ -25,7 +18,7 @@ from Training.Config.shared_config import RESULTS_DIR, CHARTS_DIR, create_result
 
 def print_model_summary(model_name: str, summary_path: Path):
     if not summary_path.exists():
-        print(f"  [{model_name}] Summary tidak ditemukan di: {summary_path}")
+        print(f"  [{model_name}] Summary not found: {summary_path}")
         return None
 
     with open(summary_path, "r") as f:
@@ -42,8 +35,7 @@ def print_model_summary(model_name: str, summary_path: Path):
 
 
 def save_comparison_summary(cnnsa: dict, transformer: dict) -> Path:
-    """Simpan tabel perbandingan (angka mentah + rasio) ke JSON, supaya tidak perlu
-    disalin manual dari console lagi setiap kali menulis laporan."""
+    """Save the raw metrics of both models and their ratios to JSON."""
     comparison = {
         "cnnsa_bilstm": {
             "accuracy": cnnsa["accuracy"],
@@ -74,12 +66,12 @@ def save_comparison_summary(cnnsa: dict, transformer: dict) -> Path:
     out_path = RESULTS_DIR / "model_comparison_summary.json"
     with open(out_path, "w") as f:
         json.dump(comparison, f, indent=2)
-    print(f"\n[Comparator] Tabel perbandingan disimpan ke: {out_path}")
+    print(f"\n[Comparator] Comparison saved to: {out_path}")
     return out_path
 
 
 def plot_metrics_comparison(cnnsa: dict, transformer: dict) -> Path:
-    """Bar chart Accuracy/Precision/Recall/F1 (weighted) CNNsa-BiLSTM vs MViTv2."""
+    """Bar chart of accuracy and weighted precision, recall, and F1 for both models."""
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -106,8 +98,8 @@ def plot_metrics_comparison(cnnsa: dict, transformer: dict) -> Path:
             ax.annotate(f"{h:.2f}%", xy=(bar.get_x() + bar.get_width() / 2, h),
                         xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9)
 
-    ax.set_ylabel("Nilai (%)")
-    ax.set_title(f"Perbandingan Performa Model -- CNNsa-BiLSTM vs MViTv2\n(data uji: 256 sequence, 32 kelas)")
+    ax.set_ylabel("Score (%)")
+    ax.set_title(f"CNNsa-BiLSTM vs MViTv2 on the test split\n(256 videos, 32 classes)")
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylim(0, 105)
@@ -117,21 +109,21 @@ def plot_metrics_comparison(cnnsa: dict, transformer: dict) -> Path:
     out_path = CHARTS_DIR / "metrics_comparison.png"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    print(f"[Comparator] Chart perbandingan metrik disimpan ke: {out_path}")
+    print(f"[Comparator] Metrics chart saved to: {out_path}")
     return out_path
 
 
 def plot_training_curves() -> Path | None:
-    """Kurva train/val loss & accuracy kedua model, dibaca dari train_history.json
-    (CNNsa-BiLSTM) dan mvit_v2_train_history.json (MViTv2) di RESULTS_DIR."""
+    """Train/val loss and accuracy of both models, from train_history.json
+    (CNNsa-BiLSTM) and mvit_v2_train_history.json (MViTv2) in RESULTS_DIR."""
     import matplotlib.pyplot as plt
 
     cnnsa_path = RESULTS_DIR / "train_history.json"
     mvit_path = RESULTS_DIR / "mvit_v2_train_history.json"
 
     if not cnnsa_path.exists() or not mvit_path.exists():
-        print(f"[Comparator] Training history tidak lengkap, skip plot_training_curves "
-              f"(cari: {cnnsa_path.name}, {mvit_path.name})")
+        print(f"[Comparator] Training history incomplete, skipping the curves "
+              f"(expected: {cnnsa_path.name}, {mvit_path.name})")
         return None
 
     with open(cnnsa_path) as f:
@@ -145,7 +137,7 @@ def plot_training_curves() -> Path | None:
         epochs = range(1, len(hist["train_loss"]) + 1)
         ax_loss.plot(epochs, hist["train_loss"], label="Train Loss")
         ax_loss.plot(epochs, hist["val_loss"], label="Val Loss")
-        ax_loss.set_title(f"{title} -- Loss")
+        ax_loss.set_title(f"{title}, loss")
         ax_loss.set_xlabel("Epoch")
         ax_loss.set_ylabel("Loss")
         ax_loss.legend()
@@ -160,7 +152,7 @@ def plot_training_curves() -> Path | None:
         ax_acc.annotate(f"Best: {val_acc_pct[best_idx]:.2f}%\n(epoch {best_idx + 1})",
                          xy=(best_idx + 1, val_acc_pct[best_idx]),
                          xytext=(10, -15), textcoords="offset points", fontsize=9)
-        ax_acc.set_title(f"{title} -- Accuracy")
+        ax_acc.set_title(f"{title}, accuracy")
         ax_acc.set_xlabel("Epoch")
         ax_acc.set_ylabel("Accuracy (%)")
         ax_acc.legend()
@@ -169,31 +161,29 @@ def plot_training_curves() -> Path | None:
     _plot_pair(axes[0, 0], axes[0, 1], cnnsa_hist, "CNNsa-BiLSTM")
     _plot_pair(axes[1, 0], axes[1, 1], mvit_hist, "MViTv2")
 
-    fig.suptitle("Kurva Training/Validation Loss dan Accuracy -- CNNsa-BiLSTM vs MViTv2", fontsize=14)
+    fig.suptitle("Training and validation curves, CNNsa-BiLSTM vs MViTv2", fontsize=14)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
     out_path = CHARTS_DIR / "training_curves_comparison.png"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    print(f"[Comparator] Chart kurva training disimpan ke: {out_path}")
+    print(f"[Comparator] Training curves saved to: {out_path}")
     return out_path
 
 
 def compare_models():
-    print("[Comparator] Memulai perbandingan model...")
+    print("[Comparator] Comparing models...")
     create_results_dir()
 
-    # 1. Muat hasil proposed model (CNNsa-BiLSTM)
     cnnsa_path = RESULTS_DIR / "evaluation_summary.json"
-    cnnsa_summary = print_model_summary("CNNsa-BiLSTM (Proposed)", cnnsa_path)
+    cnnsa_summary = print_model_summary("CNNsa-BiLSTM", cnnsa_path)
 
-    # 2. Muat hasil model pembanding (MViTv2, baseline transformer)
     transformer_path = RESULTS_DIR / "transformer_evaluation_summary.json"
-    transformer_summary = print_model_summary("MViTv2 (Baseline)", transformer_path)
+    transformer_summary = print_model_summary("MViTv2", transformer_path)
 
     if cnnsa_summary and transformer_summary:
-        print("\n=== Tabel Perbandingan Akhir ===")
-        print(f"{'Metrik':<25} | {'CNNsa-BiLSTM (Proposed)':<25} | {'MViTv2 (Baseline)':<25}")
+        print("\n=== Comparison ===")
+        print(f"{'Metric':<25} | {'CNNsa-BiLSTM':<25} | {'MViTv2':<25}")
         print("-" * 81)
 
         for key in ["accuracy", "f1_weighted", "avg_inference_cpu_ms", "model_size_mb"]:
@@ -211,11 +201,10 @@ def compare_models():
         plot_metrics_comparison(cnnsa_summary, transformer_summary)
         plot_training_curves()
     else:
-        print("\n[Petunjuk]:")
-        print("  Salah satu/kedua model belum dievaluasi. Jalankan:")
-        print("  - Training/CNNsaBiLSTM/Train.ipynb  -> tulis evaluation_summary.json")
-        print("  - Training/MViTv2/TrainMViT.ipynb   -> tulis transformer_evaluation_summary.json")
-        print("  Lalu jalankan kembali script ini untuk membandingkan keduanya.")
+        print("\nOne or both models have not been evaluated yet. Run:")
+        print("  - Training/CNNsaBiLSTM/Train.ipynb  -> writes evaluation_summary.json")
+        print("  - Training/MViTv2/TrainMViT.ipynb   -> writes transformer_evaluation_summary.json")
+        print("Then run this script again.")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
 """
-scripts/frame_extractor.py
-===========================
-Step 1 dari pipeline preprocessing:
-  Video -> Extract Frames -> Blur Filter -> Resize -> Uniform Sampling -> Video Cutting
+Preprocessing step: video -> uniformly sampled, blurred, resized RGB frames.
 
-Output: folder berisi frame-frame .jpg per video
+Each video is saved as frames.npy (N, H, W, 3) with a meta.json next to it, and
+the metadata of all videos is collected in frame_manifest.json.
 """
 
 import cv2
@@ -18,7 +16,6 @@ import logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# Core Functions
 
 def extract_frames_from_video(
     video_path: str,
@@ -32,34 +29,33 @@ def extract_frames_from_video(
     save_as_images: bool = False,
 ) -> Optional[np.ndarray]:
     """
-    Ekstrak frame dari satu video.
+    Extract the frames of one video.
 
     Args:
-        video_path     : Path ke file .mp4
-        output_dir     : Folder output untuk menyimpan frame (jika save_as_images=True)
-        target_fps     : FPS target setelah uniform sampling
-        resize         : (H, W) ukuran frame setelah resize
-        blur_kernel    : Kernel Gaussian blur
-        blur_sigma     : Sigma blur (0 = auto)
-        max_frames     : Maks jumlah frame yang diambil
-        min_frames     : Min jumlah frame; return None jika video terlalu pendek
-        save_as_images : Simpan tiap frame sebagai .jpg (untuk debug)
+        video_path     : path to the .mp4 file
+        output_dir     : folder for .jpg frames (only used when save_as_images=True)
+        target_fps     : frame rate after uniform sampling
+        resize         : (H, W) of the output frames
+        blur_kernel    : Gaussian blur kernel
+        blur_sigma     : blur sigma (0 = derived from the kernel)
+        max_frames     : maximum number of frames kept
+        min_frames     : videos with fewer frames return None
+        save_as_images : also write each frame as .jpg (debugging)
 
     Returns:
-        np.ndarray shape (N, H, W, C) atau None jika gagal
+        np.ndarray of shape (N, H, W, C), or None if the video is unusable
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        logger.warning(f"Tidak bisa membuka video: {video_path}")
+        logger.warning(f"Cannot open video: {video_path}")
         return None
 
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     if original_fps <= 0:
-        original_fps = 30.0  # fallback
+        original_fps = 30.0
 
-    # Hitung interval sampling untuk uniform sampling
     sample_interval = max(1, round(original_fps / target_fps))
 
     frames = []
@@ -70,20 +66,14 @@ def extract_frames_from_video(
         if not ret:
             break
 
-        # Uniform sampling: ambil setiap N frame
+        # Uniform sampling: keep every sample_interval-th frame
         if frame_idx % sample_interval == 0:
-            # 1. Blur filtering (noise reduction)
             frame = cv2.GaussianBlur(frame, blur_kernel, blur_sigma)
-
-            # 2. Resize
-            frame = cv2.resize(frame, (resize[1], resize[0]))  # cv2: (W, H)
-
-            # 3. Convert BGR -> RGB
+            frame = cv2.resize(frame, (resize[1], resize[0]))  # cv2 expects (W, H)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             frames.append(frame)
 
-            # Stop jika sudah max_frames
             if len(frames) >= max_frames:
                 break
 
@@ -93,13 +83,12 @@ def extract_frames_from_video(
 
     if len(frames) < min_frames:
         logger.warning(
-            f"Video terlalu pendek ({len(frames)} frame): {video_path}"
+            f"Video too short ({len(frames)} frames): {video_path}"
         )
         return None
 
     frames_array = np.array(frames, dtype=np.uint8)  # (N, H, W, C)
 
-    # Simpan sebagai gambar jika diminta (mode debug)
     if save_as_images:
         os.makedirs(output_dir, exist_ok=True)
         for i, f in enumerate(frames):
@@ -117,10 +106,10 @@ def process_dataset(
     overwrite: bool = False,
 ) -> Dict:
     """
-    Proses seluruh dataset: scan semua video, extract frames, simpan hasil.
+    Extract frames for every video in raw_video_dir and write the manifest.
 
     Returns:
-        dict berisi statistik hasil preprocessing
+        dict with preprocessing statistics
     """
     raw_dir = Path(raw_video_dir)
     out_dir = Path(output_dir) / "frames"
@@ -129,9 +118,8 @@ def process_dataset(
     frame_cfg = preprocessing_config["frame"]
     dl_cfg = preprocessing_config["dataloader"]
 
-    # Scan semua video
     video_files = sorted(raw_dir.rglob("*.mp4"))
-    logger.info(f"Ditemukan {len(video_files)} video di {raw_dir}")
+    logger.info(f"Found {len(video_files)} videos in {raw_dir}")
 
     stats = {
         "total_videos": len(video_files),
@@ -144,25 +132,23 @@ def process_dataset(
     }
 
     for i, video_path in enumerate(video_files):
-        # Parse nama file: signer0_label0_sample1.mp4
-        stem = video_path.stem  # "signer0_label0_sample1"
+        stem = video_path.stem  # e.g. "signer0_label0_sample1"
         parts = _parse_filename(stem)
 
         if parts is None:
-            logger.warning(f"Format nama file tidak dikenali: {video_path.name}")
+            logger.warning(f"Unrecognized file name: {video_path.name}")
             stats["skipped_error"] += 1
             continue
 
         label_idx = parts["label_idx"]
         label_name = _get_label_name(label_idx, dataset_config.get("label_map"))
 
-        # Folder output per video: frames/label_0/signer0_label0_sample1/
+        # e.g. frames/label_0/signer0_label0_sample1/
         video_out_dir = out_dir / f"label_{label_idx}" / stem
 
-        # Skip jika sudah ada dan overwrite=False
+        # Reuse earlier output unless overwrite=True
         meta_path = video_out_dir / "meta.json"
         if meta_path.exists() and not overwrite:
-            # Load existing meta
             with open(meta_path) as f:
                 meta = json.load(f)
             stats["manifest"].append(meta)
@@ -172,7 +158,6 @@ def process_dataset(
             )
             continue
 
-        # Extract frames
         frames = extract_frames_from_video(
             video_path=str(video_path),
             output_dir=str(video_out_dir / "images"),
@@ -189,12 +174,10 @@ def process_dataset(
             stats["skipped_short"] += 1
             continue
 
-        # Simpan frames sebagai .npy
         video_out_dir.mkdir(parents=True, exist_ok=True)
         npy_path = video_out_dir / "frames.npy"
         np.save(str(npy_path), frames)
 
-        # Simpan metadata
         meta = {
             "video_name": video_path.name,
             "video_path": str(video_path),
@@ -217,14 +200,12 @@ def process_dataset(
         )
 
         if (i + 1) % 50 == 0:
-            logger.info(f"  Progress: {i+1}/{len(video_files)} video diproses")
+            logger.info(f"  Progress: {i+1}/{len(video_files)} videos")
 
-    # Simpan manifest ke JSON
     manifest_path = Path(output_dir) / "frame_manifest.json"
     with open(manifest_path, "w") as f:
         json.dump(stats["manifest"], f, indent=2)
 
-    # Summary statistik
     if stats["frame_counts"]:
         stats["avg_frames"] = float(np.mean(stats["frame_counts"]))
         stats["min_frames_found"] = int(np.min(stats["frame_counts"]))
@@ -233,24 +214,23 @@ def process_dataset(
         stats["avg_frames"] = 0
 
     logger.info(f"\n{'='*50}")
-    logger.info(f"Frame Extraction Selesai!")
-    logger.info(f"  Diproses  : {stats['processed']}")
-    logger.info(f"  Skip pendek: {stats['skipped_short']}")
-    logger.info(f"  Skip error : {stats['skipped_error']}")
+    logger.info(f"Frame extraction finished")
+    logger.info(f"  Processed     : {stats['processed']}")
+    logger.info(f"  Skipped short : {stats['skipped_short']}")
+    logger.info(f"  Skipped error : {stats['skipped_error']}")
     if stats["frame_counts"]:
-        logger.info(f"  Rata-rata frame: {stats['avg_frames']:.1f}")
-        logger.info(f"  Frame range: {stats['min_frames_found']} - {stats['max_frames_found']}")
-    logger.info(f"  Manifest disimpan: {manifest_path}")
+        logger.info(f"  Mean frames   : {stats['avg_frames']:.1f}")
+        logger.info(f"  Frame range   : {stats['min_frames_found']} - {stats['max_frames_found']}")
+    logger.info(f"  Manifest      : {manifest_path}")
     logger.info(f"{'='*50}\n")
 
     return stats
 
-# Helpers
 
 def _parse_filename(stem: str) -> Optional[Dict]:
     """
-    Parse: signer0_label0_sample1 -> {signer_idx: 0, label_idx: 0, sample_idx: 1}
-    Modular: tambahkan format lain di sini jika dataset berbeda.
+    Parse "signer0_label0_sample1" into {signer_idx: 0, label_idx: 0, sample_idx: 1}.
+    Add other naming schemes here for other datasets.
     """
     try:
         parts = stem.split("_")

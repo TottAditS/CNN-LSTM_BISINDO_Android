@@ -1,6 +1,6 @@
 """
-FeatureExtraction/Config/feature_config.py
-Auto-detect ROOT dan konfigurasi semua setting untuk feature extraction.
+Feature extraction configuration: paths, MediaPipe settings, sequence length,
+data split, and keypoint augmentation.
 """
 
 from pathlib import Path
@@ -12,38 +12,37 @@ def find_project_root() -> Path:
         if (parent / "Datasets").exists() and (parent / "PreProcessing").exists():
             return parent
     raise RuntimeError(
-        "Tidak bisa menemukan root project. "
-        "Pastikan direktori Datasets/ dan PreProcessing/ ada di root."
+        "Project root not found. "
+        "The root must contain the Datasets/ and PreProcessing/ folders."
     )
 
 
-# --- ROOT & PATH --------------------------------------------------------------
+# --- Paths --------------------------------------------------------------------
 ROOT = find_project_root()
 
 DATASET_DIR         = ROOT / "Datasets" / "WLBisindo"
 PROCESSED_DIR       = ROOT / "Datasets" / "WLBisindo_Processed"
 FEATURE_OUTPUT_DIR  = ROOT / "Datasets" / "WLBisindo_Features"
 
-KEYPOINT_DIR        = FEATURE_OUTPUT_DIR / "keypoints"    # per-video .npy
-SEQUENCE_DIR        = FEATURE_OUTPUT_DIR / "sequences"    # final .npz
+KEYPOINT_DIR        = FEATURE_OUTPUT_DIR / "keypoints"    # one .npy per video
+SEQUENCE_DIR        = FEATURE_OUTPUT_DIR / "sequences"    # final .npz files
 
 
-# --- DATASET INFO -------------------------------------------------------------
-# Sesuai isi Datasets/WLBisindo saat ini: signer0-signer4, label0-label31.
-# signer0 baru merekam 12/32 label; sample per (signer,label) bervariasi 10 atau 15.
-# Update nilai ini jika dataset bertambah (mis. lengkap jadi 40 label).
+# --- Dataset ------------------------------------------------------------------
+# WL-BISINDO: signer0-signer4, label0-label31. signer0 recorded 12 of the 32
+# labels, and each (signer, label) pair has 10 or 15 samples.
 NUM_SIGNERS                  = 5
 NUM_LABELS                   = 32
-SAMPLES_PER_LABEL_PER_SIGNER = None  # bervariasi, tidak dipakai untuk enumerasi file
+SAMPLES_PER_LABEL_PER_SIGNER = None  # varies, not used to enumerate files
 
 
-# --- FRAME SETTINGS (harus sama dengan PreProcessing) -------------------------
+# --- Frames (must match PreProcessing) ----------------------------------------
 FRAME_SIZE       = (224, 224)
 MAX_FRAMES       = 60
 SEQUENCE_LENGTH  = 30
 
 
-# --- MEDIAPIPE SETTINGS -------------------------------------------------------
+# --- MediaPipe ----------------------------------------------------------------
 NUM_HANDS           = 2
 KEYPOINTS_PER_HAND  = 21
 COORDS_PER_KEYPOINT = 3
@@ -55,68 +54,53 @@ MP_MIN_DETECTION_CONFIDENCE = 0.5
 MP_MIN_TRACKING_CONFIDENCE  = 0.5
 
 
-# --- NORMALISASI KEYPOINT -----------------------------------------------------
-# Subtract wrist, scale by wrist->MCP9 distance -> invariant terhadap posisi & ukuran tangan
+# --- Keypoint normalization ---------------------------------------------------
+# Subtract the wrist and divide by the wrist-to-middle-finger-MCP distance, so the
+# features do not depend on hand position or size.
 NORMALIZE_KEYPOINTS = True
 
 
-# --- SEQUENCE SETTINGS --------------------------------------------------------
+# --- Sequences ----------------------------------------------------------------
 PAD_VALUE            = 0.0
-CENTER_CROP_TEMPORAL = True   # True = ambil frame tengah; False = ambil N frame pertama
+CENTER_CROP_TEMPORAL = True   # True = keep the middle frames, False = keep the first frames
 
 
-# --- SPLIT SETTINGS -----------------------------------------------------------
+# --- Split --------------------------------------------------------------------
 TRAIN_RATIO = 0.70
 VAL_RATIO   = 0.15
 TEST_RATIO  = 0.15
 RANDOM_SEED = 42
 
 
-# --- AUGMENTATION SETTINGS (keypoint-level) ------------------------------------
-# Augmentasi dilakukan di sini (bukan di PreProcessing) karena model final
-# memakai keypoint MediaPipe (T, 126), bukan raw pixel frame -- augmentasi
-# fotometrik (brightness/contrast) tidak berpengaruh ke koordinat keypoint
-# yang sudah dinormalisasi, jadi hanya transformasi geometris yang dipakai.
-# Augmentasi HANYA diterapkan ke video yang masuk train split (split dilakukan
-# dulu sebelum augmentasi, supaya tidak ada data leakage ke val/test).
-#
-# Range diperlebar + 3 teknik baru (jitter, temporal_speed, hand_dropout) ditambah
-# setelah ditemukan gap akurasi besar antara data uji desktop (94,53%) dan pengujian
-# live di aplikasi Android (CNNsa-BiLSTM sering salah, walau confidence tinggi).
-# Dataset cuma 5 signer -- daripada merekam signer baru (tidak scalable untuk aplikasi
-# nyata, lihat diskusi di TugasSaya/rencana_fine_tune_signer_adaptation.md), augmentasi
-# yang lebih kuat mensimulasikan variasi signer/kondisi kamera baru dari data yang ada.
+# --- Augmentation (keypoint level, training split only) -----------------------
+# The model reads normalized keypoints, so photometric augmentation would have no
+# effect; only geometric, temporal, and detection-noise augmentations are used.
+# The split is made before augmentation, so validation and test hold original data only.
 AUGMENTATION_CONFIG = {
     "enabled"               : True,
     "techniques"            : ["horizontal_flip", "rotation", "zoom", "jitter", "temporal_speed", "hand_dropout"],
     "horizontal_flip_prob"  : 0.5,
-    "rotation_range"        : (-20, 20),    # derajat -- diperlebar dari (-10,10)
-    "zoom_range"            : (0.8, 1.2),   # skala jarak tiap keypoint dari wrist -- diperlebar dari (0.9,1.1)
-    "jitter_std"            : 0.02,         # std noise Gaussian per koordinat -- simulasi noise deteksi MediaPipe
-    "temporal_speed_range"  : (0.85, 1.15), # simulasi variasi kecepatan bergestur antar signer/device
-    "hand_dropout_prob"     : 0.15,         # peluang satu tangan "hilang" sebagian frame (per tangan, per sequence)
-    "hand_dropout_max_frac" : 0.3,          # maksimum proporsi sequence yang boleh kena dropout sekali kena
-    "augment_multiplier"    : 4,            # naik dari 2 -> 1 original + 4 augmented = 5x data train
+    "rotation_range"        : (-20, 20),    # degrees
+    "zoom_range"            : (0.8, 1.2),   # scale of each keypoint's distance from the wrist
+    "jitter_std"            : 0.02,         # per-coordinate Gaussian noise, imitates MediaPipe detection noise
+    "temporal_speed_range"  : (0.85, 1.15), # signing speed variation
+    "hand_dropout_prob"     : 0.15,         # chance that a hand disappears for part of the sequence
+    "hand_dropout_max_frac" : 0.3,          # maximum fraction of the sequence affected by one dropout
+    "augment_multiplier"    : 4,            # 1 original + 4 augmented copies
 
-    # Signer-Mixup: BEDA dari 6 teknik di atas (yang cuma memvariasikan 1 signer) -- ini
-    # mencampur (interpolasi linear) sequence dari 2 SIGNER BERBEDA pada kelas yang sama,
-    # menghasilkan "signer sintetis" yang mengisi celah antar 5 signer asli. Ditambah setelah
-    # augmentasi biasa terbukti menaikkan akurasi test-set (94,53%->95,70%) TAPI tidak menutup
-    # gap ke signer baru saat live test di HP -- lihat diskusi & PROGRESS.md repo Android.
-    "signer_mixup_count"      : 2,          # jumlah versi mixup tambahan per video train
-    "signer_mixup_alpha_range": (0.3, 0.7), # bobot campuran -- dijaga tidak ekstrem dekat 0/1
+    # Signer-Mixup: linear interpolation between two sequences of the same class
+    # recorded by different signers, producing synthetic in-between signer styles.
+    "signer_mixup_count"      : 2,          # mixup copies per training video
+    "signer_mixup_alpha_range": (0.3, 0.7), # mixing weight, kept away from 0 and 1
 }
 
 
-# --- PROCESSING SETTINGS ------------------------------------------------------
+# --- Misc ---------------------------------------------------------------------
 VERBOSE = True
 
-
-# --- LABEL MAP ----------------------------------------------------------------
 LABEL_MAP = {i: f"label_{i}" for i in range(NUM_LABELS)}
 
 
-# --- HELPERS ------------------------------------------------------------------
 def get_keypoint_path(signer_id: int, label_id: int, sample_id: int) -> Path:
     fname = f"signer{signer_id}_label{label_id}_sample{sample_id}.npy"
     return KEYPOINT_DIR / fname

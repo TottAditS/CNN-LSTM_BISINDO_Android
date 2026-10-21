@@ -1,11 +1,8 @@
 """
-Export/Config/export_config.py
-================================
-Konfigurasi export PyTorch -> ONNX untuk kedua model (CNNsa-BiLSTM & MViTv2).
+PyTorch to ONNX export settings for both models.
 
-Path checkpoint di-IMPORT (bukan didefinisikan ulang) dari Training/*/Config/ masing-masing
-model -- single source of truth, supaya export selalu ambil checkpoint dari lokasi yang benar-
-benar dipakai trainer/evaluator.
+Checkpoint paths are imported from each model's training config, so the export
+always reads the checkpoint the trainer wrote.
 """
 
 import sys
@@ -18,8 +15,8 @@ def find_project_root() -> Path:
         if (parent / "Datasets").exists() and (parent / "PreProcessing").exists():
             return parent
     raise RuntimeError(
-        "Tidak bisa menemukan root project. "
-        "Pastikan direktori Datasets/ dan PreProcessing/ ada di root."
+        "Project root not found. "
+        "The root must contain the Datasets/ and PreProcessing/ folders."
     )
 
 
@@ -42,7 +39,7 @@ from Training.MViTv2.Config.mvit_config import (
 CNNSA_CHECKPOINT_PATH = CNNSA_CHECKPOINT_DIR / CNNSA_CHECKPOINT_CONFIG["filename"]
 MVIT_CHECKPOINT_PATH  = MVIT_CHECKPOINT_DIR / MVIT_CHECKPOINT_CONFIG["filename"]
 
-# --- OUTPUT ONNX ------------------------------------------------------------
+# --- ONNX output --------------------------------------------------------------
 EXPORT_OUTPUT_DIR = ROOT / "Export" / "Output"
 ONNX_DIR           = EXPORT_OUTPUT_DIR / "onnx"
 EXPORT_CHARTS_DIR  = EXPORT_OUTPUT_DIR / "charts"
@@ -50,29 +47,22 @@ EXPORT_CHARTS_DIR  = EXPORT_OUTPUT_DIR / "charts"
 CNNSA_ONNX_PATH = ONNX_DIR / "cnnsa_bilstm.onnx"
 MVIT_ONNX_PATH  = ONNX_DIR / "mvit_v2.onnx"
 
-# --- EXPORT SETTINGS ----------------------------------------------------------
-# Dua model butuh exporter ONNX yang BEDA -- dikonfirmasi lewat tes langsung, bukan tebakan:
-#
-# - CNNsa-BiLSTM: exporter LEGACY (TorchScript-based, dynamo=False) sudah cukup dan tervalidasi
-#   (selisih vs PyTorch ~1e-6, ONNX Runtime bahkan lebih cepat dari PyTorch di CPU).
-# - MViTv2: exporter legacy MENGHASILKAN model yang "sukses" di-export tapi GAGAL dijalankan di
-#   ONNX Runtime ("Loop subgraph input 0 has unknown shape") -- pooling-attention MViT ke-trace
-#   jadi Loop node dinamis yang shape-nya tidak bisa di-infer exporter lama. Exporter BARU
-#   (torch.export-based, dynamo=True, butuh package `onnxscript`) berhasil menghasilkan model
-#   yang benar-benar jalan di ONNX Runtime (selisih vs PyTorch ~1.25e-6). Exporter baru ini juga
-#   otomatis naikkan opset ke >=18 kalau diminta opset lebih rendah -- makanya MVIT_OPSET=18.
+# --- Exporter settings --------------------------------------------------------
+# CNNsa-BiLSTM uses the legacy TorchScript exporter (dynamo=False).
+# MViTv2 needs the dynamo exporter (dynamo=True, requires onnxscript); the legacy
+# exporter produces a graph that fails in ONNX Runtime. The dynamo exporter
+# requires opset 18 or higher.
 CNNSA_OPSET = 17
 CNNSA_USE_DYNAMO = False
 
 MVIT_OPSET = 18
 MVIT_USE_DYNAMO = True
 
-# Batch size DIFIX ke 1 (bukan dynamic) -- sesuai use-case nyata: inferensi Android satu
-# sequence/clip sekali jalan (bukan batch). Ini juga menghindari warning PyTorch soal LSTM
-# + dynamic batch size (lihat CNNsa-BiLSTM export).
+# Fixed batch size of 1: the app classifies one sequence or clip at a time, and a
+# fixed batch avoids PyTorch's LSTM dynamic-batch warning.
 BATCH_SIZE = 1
 
-# Shape dummy input untuk tracing export (harus konsisten dengan Training/*/Config).
+# Dummy input shapes for tracing (must match the training configs).
 CNNSA_INPUT_SHAPE = (BATCH_SIZE, SEQUENCE_LENGTH, FEATURES_PER_FRAME)          # (1, 30, 126)
 MVIT_INPUT_SHAPE  = (BATCH_SIZE, 3, CLIP_LENGTH, FRAME_SIZE[0], FRAME_SIZE[1])  # (1, 3, 16, 224, 224)
 
@@ -85,18 +75,18 @@ def create_output_dirs():
 
 
 def verify_checkpoints_exist() -> bool:
-    """Cek apakah checkpoint hasil training (Training/CNNsaBiLSTM & Training/MViTv2) sudah ada."""
+    """Check that both training checkpoints exist."""
     missing = []
     for name, path in [("CNNsa-BiLSTM", CNNSA_CHECKPOINT_PATH), ("MViTv2", MVIT_CHECKPOINT_PATH)]:
         if not path.exists():
             missing.append(f"  [MISSING] {name}: {path}")
     if missing:
-        print("[ExportConfig] ERROR: Checkpoint belum ada!")
-        print("  Jalankan Training/CNNsaBiLSTM/Train.ipynb dan/atau Training/MViTv2/TrainMViT.ipynb dulu.\n")
+        print("[ExportConfig] ERROR: checkpoints not found.")
+        print("  Run Training/CNNsaBiLSTM/Train.ipynb and Training/MViTv2/TrainMViT.ipynb first.\n")
         for m in missing:
             print(m)
         return False
-    print("[ExportConfig] Semua checkpoint ditemukan.")
+    print("[ExportConfig] All checkpoints found.")
     return True
 
 

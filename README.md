@@ -1,534 +1,235 @@
-# 🤟 CNNsa-BiLSTM for BISINDO Recognition
-### Real-Time Indonesian Sign Language Recognition on Android
+# CNNsa-BiLSTM for Word-Level BISINDO Recognition
 
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.11.0-red)
-![CUDA](https://img.shields.io/badge/CUDA-12.8-green)
-![Android](https://img.shields.io/badge/Android-API%2026+-brightgreen)
-![ONNX](https://img.shields.io/badge/Export-ONNX-purple)
-![Status](https://img.shields.io/badge/Status-Selesai-brightgreen)
+Research code for a lightweight Indonesian Sign Language (BISINDO) recognizer that runs on
+low-end Android phones. CNNsa-BiLSTM classifies sequences of MediaPipe hand keypoints. It is
+compared with MViTv2-S, a video transformer that reads RGB frames, on the WL-BISINDO dataset.
 
----
+The Android application used for the on-device tests is in a separate repository:
+[BISINDO_ANDROID_APP](https://github.com/TottAditS/BISINDO_ANDROID_APP).
 
-## 📖 Overview
-
-Penelitian ini mengembangkan sistem pengenalan gesture dinamis **Bahasa Isyarat Indonesia (BISINDO)** berbasis deep learning yang diimplementasikan secara real-time pada perangkat Android. Model yang diusulkan adalah **CNN-Spatial Attention-BiLSTM-Attention (CNNsa-BiLSTM)** berbasis keypoint MediaPipe, yang dirancang untuk menyeimbangkan akurasi tinggi dan efisiensi komputasi agar dapat berjalan pada perangkat mobile dengan sumber daya terbatas.
-
-> 📌 **Target**: Akurasi >90% dengan latency <100ms pada perangkat Android
-
----
-
-## 🎯 Latar Belakang
-
-Indonesia memiliki sekitar **1,92 juta individu Tuli**, namun hanya tersedia **~500 Juru Bahasa Isyarat (JBI) bersertifikat** hingga 2025. Ketimpangan ini menciptakan hambatan komunikasi signifikan di sektor pendidikan, kesehatan, dan layanan publik. Penelitian ini hadir sebagai solusi teknologi yang memungkinkan komunikasi mandiri dan real-time melalui smartphone.
-
----
-
-## 🏗️ Arsitektur Model
-
-Model CNNsa-BiLSTM menggunakan **keypoint MediaPipe** `(30, 126)` sebagai input — bukan raw image — sehingga jauh lebih ringan dan efisien untuk deployment Android.
+## Pipeline
 
 ```
-Input Keypoints (30 frames × 126 features)
-   126 = 2 tangan × 21 keypoint × 3 coords (x, y, z)
-         │
-         ▼
-┌─────────────────────────┐
-│   Per-frame CNN Block   │  ← Conv1D layers ekstraksi fitur dari 126 keypoint
-│   (shared across frames)│    Output: (30, 256)
-└─────────────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│   Spatial Attention     │  ← Fokus pada fitur keypoint yang paling relevan
-│   (feature-wise)        │    Output: (30, 256) — weighted features
-└─────────────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│   Bidirectional LSTM    │  ← Pemodelan temporal maju & mundur
-│   (2 layers, hidden=256)│    Output: (30, 512)
-└─────────────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│   Temporal Attention    │  ← Fokus pada frame paling informatif dari 30 frame
-│   (frame-wise)          │    Output: (512,) — context vector
-└─────────────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│   Classifier            │  ← FC(512→256) → ReLU → Dropout → FC(256→32) → Softmax
-│                         │    Output: 32 kelas kata BISINDO
-└─────────────────────────┘
+Raw videos (WL-BISINDO)
+  |
+  1. PreProcessing       blur, resize to 224x224, uniform sampling at 15 fps
+  |                      -> frames.npy per video + frame_manifest.json
+  |
+  +-------------------------------+
+  |                               |
+  2. FeatureExtraction            |  (MViTv2 reads the frames directly)
+  |  MediaPipe Hands, 126 values  |
+  |  per frame, normalization,    |
+  |  split, augmentation,         |
+  |  30-frame sequences           |
+  |                               |
+  3a. Train CNNsa-BiLSTM          3b. Fine-tune MViTv2-S
+  |                               |
+  +---------------+---------------+
+                  |
+  4. Compare both models on the same test videos
+  5. Export both models to ONNX and validate against PyTorch
 ```
 
----
+Both models use the same video-level split (70/15/15, stratified by class, seed 42), produced by
+`FeatureExtraction/Scripts/video_split.py`.
 
-## 🔄 Pipeline Lengkap
+## Model
 
-```
-📹 Raw Video Dataset
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 1. PRE-PROCESSING                                        │
-│    Scan Video → Blur Filter → Resize (224×224)           │
-│    Uniform Sampling (15fps)                              │
-│    Output: frame_manifest.json + frames.npy per video    │
-│    Notebook: PreProcessing/PreProcess.ipynb              │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 2. FEATURE EXTRACTION                                    │
-│    MediaPipe Hands → Palm Detection → 21 Keypoints       │
-│    × 3 (x,y,z) × 2 tangan = 126 features/frame           │
-│    Split Train/Val/Test → Augmentation (6 teknik         │
-│    + jitter/speed/dropout + Signer-Mixup, train saja) →  │
-│    Temporal Pad/Crop → 30 frame fixed                    │
-│    Output: train/val/test_sequences.npz  (N, 30, 126)    │
-│    Notebook: FeatureExtraction/FeatureExtraction.ipynb   │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 3a. TRAINING — CNNsa-BiLSTM (proposed model)             │
-│    Input: keypoint sequences dari Step 2                 │
-│    Metrics: Accuracy, F1, Precision, Recall,             │
-│             Inference Time, Model Size                   │
-│    Notebook: Training/CNNsaBiLSTM/Train.ipynb            │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼ (paralel, bisa jalan tanpa Step 2 — baca frames.npy langsung dari Step 1)
-┌──────────────────────────────────────────────────────────┐
-│ 3b. TRAINING — MViTv2 (baseline transformer)             │
-│    Input: raw video clip (16 frame, 224×224) dari Step 1 │
-│    Fine-tune dari bobot pretrained Kinetics-400          │
-│    Notebook: Training/MViTv2/TrainMViT.ipynb             │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 3c. PERBANDINGAN MODEL                                   │
-│    Training/Scripts/comparator.py — video val/test SAMA  │
-│    untuk kedua model (split di-share), tabel akurasi/F1/ │
-│    latensi/ukuran model side-by-side                     │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 4. EXPORT KE ONNX (kedua model, PC saja)                 │
-│    PyTorch → ONNX, validasi output PyTorch vs ONNX RT    │
-│    Notebook: Export/ExportModels.ipynb                   │
-│    cnnsa_bilstm.onnx (14.6MB)  — kandidat Android        │
-│    mvit_v2.onnx (132MB)        — pembanding riset saja   │
-└──────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────────────────────┐
-│ 5. DEPLOYMENT ANDROID (repo terpisah)                    │
-│    cnnsa_bilstm.onnx → Android APK (Kotlin, CameraX +    │
-│    MediaPipe Tasks + ONNX Runtime Mobile), sudah jalan   │
-│    end-to-end & diverifikasi di device fisik             │
-│    (MViTv2 IKUT diintegrasikan sebagai pembanding di app │
-│     lihat repo BISINDO_ANDROID_APP)                      │
-└──────────────────────────────────────────────────────────┘
-```
+Input: 30 frames x 126 values (2 hands x 21 landmarks x 3 coordinates). Each hand is expressed
+relative to its wrist and divided by the wrist-to-middle-finger-MCP distance.
 
----
-
-## 📱 Android App Flow
-
-Implementasi aktual (repo terpisah `BISINDO_ANDROID_APP`, lihat README repo itu untuk detail
-lengkap) — Menu → Kamera (rekam & bandingkan) atau Menu → Riwayat (lihat sesi lama, tabel Evaluasi,
-ekspor JSON):
-
-```
-Menu (MainActivity)
- ├─ Buka Kamera → CameraActivity: preview + overlay skeleton tangan LIVE,
- │  tombol "Rekam (5 dtk)" → tangkap seluruh durasi, jalankan CNNsa-BiLSTM di
- │  10 jendela geser sepanjang rekaman (ambil confidence tertinggi sebagai
- │  jawaban akhir) BERBARENGAN dengan MViTv2 (pembanding) atas klip yang sama,
- │  tampilkan gloss + confidence + latency kedua model berdampingan
- └─ Riwayat → HistoryActivity: daftar sesi tersimpan ("Sesi N: <gloss>")
-     ├─ tap sesi → HistoryPlaybackActivity: flipbook frame + unduh sequence.json
-     └─ tombol Evaluasi → EvaluationActivity: tabel perbandingan CNNsa-BiLSTM
-        (breakdown 10 jendela) vs MViTv2, latency, CPU%/RAM, grafik latensi
-```
-
-**Alur Inferensi Android (per sesi rekam):**
-1. User tekan **Rekam** → kamera + overlay skeleton tangan aktif live selama 5 detik
-2. MediaPipe Hands ekstrak 126 keypoint per frame on-device (dengan koreksi rotasi +
-   handedness — lihat catatan root-cause di README `BISINDO_ANDROID_APP`)
-3. Seluruh rekaman dipotong jadi 10 jendela 30-frame yang tersebar merata (bukan satu jendela
-   di tengah) → CNNsa-BiLSTM jalan di ke-10nya (~70-90ms total), jendela confidence tertinggi
-   jadi jawaban akhir; MViTv2 jalan sekali atas klip 16-frame yang sama sebagai pembanding
-4. Tampil gloss + confidence + latency **kedua model**, tersimpan ke Riwayat untuk ditinjau ulang
-
----
-
-## 📁 Struktur Direktori
-
-```
-CNN-LSTM_BISINDO_Android/
-│
-├── 📂 Datasets/
-│   ├── WLBisindo/                      ← Raw video (*.mp4)
-│   ├── WLBisindo_Processed/            ← Output preprocessing (auto-generated)
-│   │   ├── frames/                     ← frames.npy per video (bertingkat per label)
-│   │   └── frame_manifest.json         ← metadata semua video
-│   └── WLBisindo_Features/             ← Output feature extraction (auto-generated)
-│       ├── keypoints/                  ← keypoint.npy per video asli (T, 126)
-│       └── sequences/                  ← train/val/test_sequences.npz (N, 30, 126)
-│                                          (train = original + augmented, val/test = original saja)
-│
-├── 📂 PreProcessing/                   ← Step 1: Video → Frame Sequences
-│   ├── Config/
-│   │   └── dataset_config.py           ← Konfigurasi dataset & preprocessing
-│   ├── Scripts/
-│   │   └── frame_extractor.py          ← Ekstraksi frame dari video
-│   ├── PreProcess.ipynb                ← Notebook controller (jalankan ini)
-│   └── PreProcessing Setup.md
-│
-├── 📂 FeatureExtraction/               ← Step 2: Frame → Keypoint Sequences (khusus CNNsa-BiLSTM)
-│   ├── Config/
-│   │   └── feature_config.py           ← Konfigurasi feature extraction & augmentasi
-│   ├── Scripts/
-│   │   ├── keypoint_extractor.py       ← MediaPipe → 21 keypoints per tangan
-│   │   ├── keypoint_augmentor.py       ← Augmentasi keypoint (flip/rotate/zoom), train saja
-│   │   ├── video_split.py              ← Split train/val/test SHARED (dipakai juga MViTv2)
-│   │   └── sequence_builder.py         ← Split → augmentasi → (N, 30, 126) sequences
-│   ├── FeatureExtraction.ipynb         ← Notebook controller (jalankan ini)
-│   └── FeatureExtraction Setup.md
-│
-├── 📂 Training/                        ← Step 3: Train, Evaluasi & Bandingkan Model
-│   ├── Config/
-│   │   └── shared_config.py            ← RESULTS_DIR (SHARED, dibaca comparator.py)
-│   ├── Scripts/
-│   │   ├── comparator.py               ← Tabel perbandingan CNNsa-BiLSTM vs MViTv2
-│   │   └── device_utils.py             ← get_device() (SHARED oleh kedua model)
-│   ├── CNNsaBiLSTM/                    ← Proposed model (input: keypoint)
-│   │   ├── Config/train_config.py      ← Hyperparameter & path
-│   │   ├── Models/cnnsa_bilstm.py      ← Arsitektur CNNsa-BiLSTM
-│   │   ├── Scripts/{trainer.py, evaluator.py}
-│   │   └── Train.ipynb                 ← Notebook controller
-│   ├── MViTv2/                         ← Baseline transformer (input: raw video, pretrained Kinetics-400)
-│   │   ├── Config/mvit_config.py       ← Hyperparameter, freeze strategy, clip settings
-│   │   ├── Models/mvit_v2.py           ← Wrapper torchvision mvit_v2_s
-│   │   ├── Scripts/{mvit_dataset.py, mvit_trainer.py, mvit_evaluator.py}
-│   │   └── TrainMViT.ipynb             ← Notebook controller
-│   └── Training Setup.md
-│
-├── 📂 Export/                          ← Step 4: PyTorch → ONNX (kedua model, PC saja)
-│   ├── Config/export_config.py         ← Path checkpoint/output, opset, shape input per model
-│   ├── Scripts/
-│   │   ├── export_cnnsa_bilstm.py      ← Export CNNsa-BiLSTM -> ONNX (legacy exporter)
-│   │   ├── export_mvit_v2.py           ← Export MViTv2 -> ONNX (exporter baru, dynamo=True)
-│   │   └── validate_onnx.py            ← Bandingkan output PyTorch vs ONNX Runtime
-│   ├── ExportModels.ipynb              ← Notebook controller
-│   ├── Export Setup.md
-│   └── Output/onnx/                    ← cnnsa_bilstm.onnx, mvit_v2.onnx(.data) — auto-generated
-│
-└── Requirements.txt
-```
-
----
-
-## 📊 Dataset
-
-| Property | Detail |
-|---|---|
-| Nama | WLBisindo (Word-Level BISINDO) |
-| Total Video | 1.600 video |
-| Format | `signer{N}_label{N}_sample{N}.mp4` |
-| Jumlah Kelas | 32 kata BISINDO (`label0`–`label31`) |
-| Jumlah Signer | 5 signer (`signer0`–`signer4`) — `signer0` baru merekam 12/32 kelas |
-| Sample per Kelas | Bervariasi (10 atau 15 per signer) |
-| Split | 70% Train / 15% Val / 15% Test (per label, sebelum augmentasi) |
-| Augmentasi | Hanya di train split, level keypoint: 6 teknik + Signer-Mixup (lihat tabel di bawah), total 7x data train |
-
-> ⚠️ Target awal riset adalah 40 kata / 4 signer (lihat tabel Training Config). Dataset yang
-> sudah terkumpul saat ini baru 32 kelas dari 5 signer. `NUM_LABELS`/`NUM_CLASSES` di semua
-> config sudah disesuaikan ke 32 — update kembali ke 40 jika dataset sudah lengkap.
-
----
-
-## ⚙️ Preprocessing Config
-
-| Parameter | Value |
-|---|---|
-| Target FPS | 15 fps |
-| Frame Size | 224 × 224 px |
-| Output Format | `.npy` per video + `frame_manifest.json` |
-
-## 🔀 Feature Extraction — Split & Augmentation Config
-
-| Parameter | Value |
-|---|---|
-| Sequence Length | 30 frames |
-| Split | 70% Train / 15% Val / 15% Test (stratified per label, **sebelum** augmentasi) |
-| Augmentasi geometrik | Horizontal flip (p=0.5), rotation (±20°), zoom (0.8–1.2×) — level keypoint |
-| Augmentasi tambahan | Jitter Gaussian (std 0.02, simulasi noise deteksi MediaPipe), temporal speed (0.85–1.15×), hand dropout (p=0.15, maks 30% frame per sequence) |
-| Augment Multiplier | 1 original + 4 augmented = 5x data train |
-| Signer-Mixup | Interpolasi linear (alpha 0.3–0.7) antar 2 sequence signer berbeda pada kelas sama, 2x tambahan per video train — mengisi celah antar 5 signer asli, bukan cuma memvariasikan 1 signer |
-| Total data train | **7x** data original (1 original + 4 augmented + 2 signer-mixup) |
-| Output Format | `.npz` (NumPy compressed) |
-
-> 📌 Range augmentasi diperlebar + 3 teknik baru (jitter/temporal_speed/hand_dropout) + Signer-Mixup
-> ditambahkan setelah ditemukan gap besar antara akurasi test set desktop dan pengujian live di
-> aplikasi Android (root cause sebenarnya ternyata bug handedness+rotasi di sisi Android, lihat
-> `BISINDO_ANDROID_APP/PROGRESS.md` — tapi augmentasi yang lebih kuat ini tetap dipertahankan
-> karena hasil akhirnya (95,31%, lihat bagian Model Evaluation) masih di atas baseline 94,53%
-> sebelum augmentasi diperkuat). Detail lengkap di komentar `FeatureExtraction/Config/feature_config.py`.
-
----
-
-## 🏋️ Training Config
-
-| Parameter | Value |
-|---|---|
-| Input Shape | (N, 30, 126) |
-| Feature Dim (CNN out) | 256 |
-| BiLSTM Hidden Size | 256 (× 2 = 512 bidirectional) |
-| BiLSTM Layers | 2 |
-| Dropout | 0.3 |
-| Num Classes | 32 (sesuai dataset saat ini — lihat bagian Dataset) |
-| Batch Size | 64 |
-| Learning Rate | 1e-3 |
-| Optimizer | Adam (weight_decay=1e-4) |
-| LR Scheduler | ReduceLROnPlateau |
-| Max Epochs | 100 |
-| Early Stopping | patience=10 |
-
----
-
-## 📈 Model Evaluation
-
-Hasil aktual di test split dataset WLBisindo (1600 video asli, split signer-dependent 70/15/15,
-video val/test identik untuk kedua model):
-
-| Metrik | CNNsa-BiLSTM (Proposed) | MViTv2 (Baseline) |
+| Stage | Details | Output |
 |---|---|---|
-| Accuracy | **95.31%** | 99.22% |
-| F1-Score (weighted) | 95.27% | 99.22% |
-| Precision (weighted) | 95.56% | 99.31% |
-| Recall (weighted) | 95.31% | 99.22% |
-| Inference Time (CPU) | **7.42 ms/sequence** | 400.07 ms/clip |
-| Model Size (checkpoint) | **43.94 MB** (ONNX 14.65 MB) | 262.26 MB (ONNX ~143 MB) |
-| Total Parameters | 3.84 juta | 34.25 juta (17.22 juta trainable) |
-| Android Compatible | ✅ | ✅ (diintegrasikan sebagai pembanding di app, bukan model utama) |
+| Per-frame CNN | Conv1D 64 and 128 channels, kernel 5, BatchNorm, ReLU, MaxPool; linear projection; weights shared over frames | (30, 256) |
+| Channel attention | Gate from the temporal average, reduction ratio 16 | (30, 256) |
+| BiLSTM | 2 layers, 256 hidden units per direction | (30, 512) |
+| Temporal attention | Softmax over time steps, weighted sum | (512) |
+| Classifier | Dense 256, ReLU, dropout 0.3, 32 classes | (32) |
 
-> 📌 **Target awal tercapai**: CNNsa-BiLSTM mencapai akurasi >90% (95.31%) dengan latency
-> <100ms (7.42ms/sequence) — sesuai target di bagian Overview.
->
-> **Trade-off akurasi vs efisiensi**: MViTv2 unggul akurasi (+3.9 poin) karena model 9x lebih
-> besar dan melihat raw video langsung (bukan keypoint), sejalan dengan hasil paper referensi
-> (MViTv2 menang di setting signer-dependent). Tapi CNNsa-BiLSTM **~54x lebih cepat inferensi**
-> dan **~6x lebih kecil** — inilah alasan utama CNNsa-BiLSTM yang dipilih sebagai model utama
-> deployment Android (real-time, 10 jendela geser per sesi rekam tetap ~70-90ms total, lihat
-> repo `BISINDO_ANDROID_APP`), sementara MViTv2 tetap diintegrasikan sebagai pembanding
-> akurasi-vs-efisiensi langsung di dalam aplikasi (bukan "tidak dipakai" seperti draft awal
-> rencana — lihat README `BISINDO_ANDROID_APP` untuk detail perbandingan on-device).
->
-> CNNsa-BiLSTM: training dengan dataset augmentasi final (7x, lihat bagian Feature Extraction).
-> MViTv2: training 30 epoch penuh (fine-tune dari Kinetics-400 pretrained), ~36 menit di RTX 5060.
+CNNsa-BiLSTM has 3.84 million parameters (15.4 MB as ONNX). MViTv2-S has 34.25 million
+parameters (143 MB as ONNX); its last 4 of 16 blocks and a new 32-class head are fine-tuned
+from Kinetics-400 weights.
 
----
+## Results
 
-## 🛠️ Tech Stack
+Test split of WL-BISINDO, 256 videos (8 per class). Precision, recall, and F1 are weighted
+averages. Latency is the mean per sample on a desktop CPU with PyTorch.
 
-| Komponen | Teknologi |
-|---|---|
-| Deep Learning | PyTorch 2.11.0 |
-| GPU Training | NVIDIA GPU + CUDA 12.8 wheel (wajib untuk GPU Blackwell / RTX 50-series, backward-compatible untuk GPU lama) |
-| Computer Vision | opencv-contrib-python, Pillow |
-| Hand Keypoints | MediaPipe Hands (CPU-only di Windows — GPU delegate belum didukung Google di platform ini) |
-| Model Export | ONNX |
-| Android Inference | ONNX Runtime Mobile |
-| Android Camera | CameraX |
-| Experiment Tracking | TensorBoard |
+| Metric | CNNsa-BiLSTM | MViTv2-S |
+|---|---|---|
+| Accuracy | 95.31% | 99.22% |
+| Precision | 95.56% | 99.31% |
+| Recall | 95.31% | 99.22% |
+| F1-score | 95.27% | 99.22% |
+| Parameters | 3.84 M | 34.25 M |
+| ONNX size | 15.4 MB | 143 MB |
+| Desktop CPU latency | 7.42 ms | 400.07 ms |
 
-> ⚠️ **GPU note**: training PyTorch (kedua model) otomatis pakai GPU kalau `torch.cuda.is_available()` = True
-> (lihat `Training/Scripts/device_utils.py` -> `get_device()`, dipakai `CNNsaBiLSTM/Scripts/trainer.py` &
-> `MViTv2/Scripts/mvit_trainer.py`, dipanggil di awal training/notebook dan akan print nama GPU + compute
-> capability, atau warning jelas kalau jatuh ke CPU). Ekstraksi keypoint MediaPipe (`FeatureExtraction/`)
-> selalu jalan di CPU terlepas dari ini — itu batasan resmi MediaPipe di Windows, bukan bug di repo ini.
+On-device results (Xiaomi Poco M4 Pro, 160 attempts on replayed dataset clips; Samsung Galaxy
+S24 Ultra, 31 attempts) are in `AndroidEvaluation/`; see [On-device data](#on-device-data).
 
----
+## Repository layout
 
-## 🚀 Cara Menjalankan Pipeline (Step-by-Step)
+```
+PreProcessing/
+  Config/dataset_config.py          paths and frame settings
+  Scripts/frame_extractor.py        video -> frames
+  Scripts/visualize_preprocessing.py
+  PreProcess.ipynb
+FeatureExtraction/
+  Config/feature_config.py          MediaPipe, sequence, split, and augmentation settings
+  Scripts/keypoint_extractor.py     MediaPipe Hands -> (T, 126)
+  Scripts/keypoint_augmentor.py     keypoint augmentation and Signer-Mixup
+  Scripts/video_split.py            split shared by both models
+  Scripts/sequence_builder.py       split -> augment -> (N, 30, 126) .npz
+  Scripts/visualize_feature_extraction.py
+  FeatureExtraction.ipynb
+Training/
+  Config/shared_config.py           shared results folder
+  Scripts/comparator.py             comparison table and charts
+  Scripts/device_utils.py           GPU selection
+  CNNsaBiLSTM/                      config, model, trainer, evaluator, hyperparameter search, Train.ipynb
+  MViTv2/                           config, model, dataset, trainer, evaluator, TrainMViT.ipynb
+Export/
+  Config/export_config.py
+  Scripts/export_cnnsa_bilstm.py
+  Scripts/export_mvit_v2.py
+  Scripts/validate_onnx.py
+  ExportModels.ipynb
+AndroidEvaluation/                  per-attempt logs exported by the Android app
+Requirements.txt
+```
 
-> ✅ **Sudah divalidasi end-to-end**: seluruh urutan di bawah ini (Step 0-6) sudah dijalankan
-> sungguhan — bukan cuma dibaca kodenya — memakai dataset sintetis kecil (video dummy), kode asli
-> repo ini, dan environment asli (Python 3.11, PyTorch 2.11.0+cu128, mediapipe 0.10.21) di GPU
-> NVIDIA RTX 50-series. Semua tahap (PreProcessing → FeatureExtraction → training kedua model →
-> evaluasi kedua model → tabel perbandingan) berhasil selesai tanpa error di akhir validasi ini.
+`Datasets/`, `Training/Output/`, and `Export/Output/` are created when the pipeline runs and are
+not tracked.
 
-### Step 0 — Setup Environment
+## Reproducing the results
 
-Buat environment khusus project ini (jangan pakai environment lain yang sudah terisi banyak
-package — rawan bentrok versi):
+### 1. Environment
+
+Python 3.11 on Windows 11 was used, with an NVIDIA RTX 5060 (8 GB) for training.
+
 ```bash
 conda create -n bisindo python=3.11 -y
 conda activate bisindo
-cd CNN-LSTM_BISINDO_Android
 pip install -r Requirements.txt
 ```
 
-> ⚠️ Kalau `conda activate` tidak mengubah prompt jadi `(bisindo) ...`, jalankan `conda init
-> powershell` sekali lalu **tutup-buka ulang terminal** (bukan cuma tab baru).
+Check the installation:
 
-Verifikasi environment benar-benar siap (jalankan ketiganya, semua harus sukses tanpa error):
 ```bash
-python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 python -c "import mediapipe as mp; print(mp.solutions.hands.Hands())"
-python -c "import cv2; print(cv2.__version__, cv2.VideoCapture)"
 ```
-GPU harus `True` + nama GPU kamu muncul. Kalau salah satu di atas error, **jangan lanjut** —
-lihat bagian "Requirements" di bawah, atau `Requirements.txt` langsung untuk catatan
-troubleshooting lengkap (mediapipe/numpy/opencv sengaja dipin ke versi tertentu, ada
-penjelasannya di komentar file itu).
 
-> ⚠️ **Jangan install ulang package manapun** (`pip install ...`) di luar `Requirements.txt`
-> setelah ini — termasuk jangan jalankan cell notebook manapun yang isinya `!pip install ...`.
-> Menaikkan versi `numpy`/`opencv`/`mediapipe` secara terpisah akan membentur pin yang sudah
-> disusun supaya kompatibel satu sama lain, dan bisa merusak `cv2`/`mediapipe` yang sudah jalan.
+`mediapipe`, `numpy`, `opencv-contrib-python`, and `protobuf` are pinned to versions that work
+together; installing newer versions separately breaks `mediapipe.solutions`. The reasons are
+noted in `Requirements.txt`.
 
-### Step 1 — Siapkan Dataset
-Letakkan video di `Datasets/WLBisindo/`, format nama `signer{N}_label{N}_sample{N}.mp4`:
-```
-Datasets/WLBisindo/signer0_label0_sample1.mp4
-                   signer0_label0_sample2.mp4
-                   ...
-```
-Path ini otomatis terdeteksi oleh `PreProcessing/Config/dataset_config.py` — tidak perlu edit apapun.
+### 2. Dataset
 
-### Step 2 — PreProcessing (extract frame mentah)
+Download WL-BISINDO from Kaggle:
+<https://www.kaggle.com/datasets/glennleonali/wl-bisindo>
+
+Place the videos anywhere under `Datasets/WLBisindo/`. File names must follow
+`signer{S}_label{L}_sample{N}.mp4`, as in the original dataset. The dataset has 1,600 videos,
+32 classes, and 5 signers.
+
+### 3. Run the pipeline
+
+Open each notebook from its own folder and run all cells in order.
+
+| Step | Notebook | Output |
+|---|---|---|
+| 1 | `PreProcessing/PreProcess.ipynb` | `Datasets/WLBisindo_Processed/` |
+| 2 | `FeatureExtraction/FeatureExtraction.ipynb` | `Datasets/WLBisindo_Features/sequences/*.npz` |
+| 3 | `Training/CNNsaBiLSTM/Train.ipynb` | `Training/Output/cnnsa_bilstm/`, `evaluation_summary.json` |
+| 4 | `Training/MViTv2/TrainMViT.ipynb` | `Training/Output/mvit_v2/`, `transformer_evaluation_summary.json`, comparison |
+| 5 | `Export/ExportModels.ipynb` | `Export/Output/onnx/` |
+
+Step 2 runs MediaPipe on the CPU and takes about 30-60 minutes for the 1,600 videos. Step 4
+needs only step 1 and took about 36 minutes on an RTX 5060; the Kinetics-400 weights for
+MViTv2 (about 140 MB) are downloaded automatically on the first run.
+
+After step 1, the remaining steps can also be run as scripts from the repository root:
+
 ```bash
-cd PreProcessing
-jupyter notebook PreProcess.ipynb
-```
-Jalankan semua cell dari atas. Output: `Datasets/WLBisindo_Processed/frames/` + `frame_manifest.json`.
-Untuk 1600 video asli, tahap ini butuh waktu tergantung jumlah & panjang video (bukan MediaPipe,
-jadi relatif cepat — didominasi baca/resize video).
-
-### Step 3 — Feature Extraction (khusus CNNsa-BiLSTM: keypoint MediaPipe, split, augmentasi)
-```bash
-cd FeatureExtraction
-jupyter notebook FeatureExtraction.ipynb
-```
-Step 1 di notebook ini (ekstraksi keypoint MediaPipe) ~30-60 menit untuk 1600 video asli (CPU-only,
-lihat catatan MediaPipe di README). Step 2 (split + augmentasi) ~1-5 menit. Output:
-`Datasets/WLBisindo_Features/sequences/{train,val,test}_sequences.npz`.
-
-### Step 4 — Training CNNsa-BiLSTM (proposed model) + evaluasi
-```bash
-cd Training/CNNsaBiLSTM
-jupyter notebook Train.ipynb
-```
-Training loop (GPU otomatis kalau tersedia) → checkpoint terbaik → evaluasi test split → plot
-loss/accuracy → confusion matrix. Output: `Training/Output/cnnsa_bilstm/checkpoints/`,
-`Training/Output/results/evaluation_summary.json`.
-
-### Step 5 — Training MViTv2 (baseline transformer) + evaluasi
-Tidak perlu Step 3 — cukup Step 2 (baca `frames.npy` langsung):
-```bash
-cd Training/MViTv2
-jupyter notebook TrainMViT.ipynb
-```
-Jauh lebih berat/lambat per-epoch dari Step 4 (model video 34.5M parameter, bukan keypoint).
-Bobot pretrained Kinetics-400 (~140MB) di-download otomatis sekali di run pertama (tersimpan di
-cache `~/.cache/torch/hub/`, tidak perlu download ulang di run berikutnya). Output:
-`Training/Output/mvit_v2/checkpoints/`, `Training/Output/results/transformer_evaluation_summary.json`.
-
-### Step 6 — Bandingkan Kedua Model
-Cell terakhir `TrainMViT.ipynb` otomatis memanggil ini setelah Step 4 & 5 selesai. Bisa juga
-dijalankan manual kapan saja setelah kedua model dievaluasi:
-```bash
+python FeatureExtraction/Scripts/keypoint_extractor.py
+python FeatureExtraction/Scripts/sequence_builder.py
+python Training/CNNsaBiLSTM/Scripts/trainer.py
+python Training/CNNsaBiLSTM/Scripts/evaluator.py
+python Training/MViTv2/Scripts/mvit_trainer.py
+python Training/MViTv2/Scripts/mvit_evaluator.py
 python Training/Scripts/comparator.py
-```
-Mencetak tabel accuracy / F1 / latensi CPU / ukuran model side-by-side, dibaca dari
-`Training/Output/results/evaluation_summary.json` + `transformer_evaluation_summary.json`.
-
-### Step 7 — Export ke ONNX
-```bash
-cd Export
-jupyter notebook ExportModels.ipynb
-```
-Export kedua checkpoint ke ONNX + validasi otomatis (bandingkan output PyTorch vs ONNX Runtime
-pakai sample test asli). Detail lengkap (kenapa dua model butuh exporter ONNX yang beda, kenapa
-validasi CPU bukan GPU, dst) ada di `Export/Export Setup.md`. Output: `Export/Output/onnx/`.
-
-### Step 8 — Aplikasi Android (repo terpisah, sudah selesai)
-Aplikasi Android native Kotlin ada di repo terpisah **`BISINDO_ANDROID_APP`** (CameraX + MediaPipe
-Tasks + ONNX Runtime Mobile, sepenuhnya offline/on-device). Kedua model `cnnsa_bilstm.onnx` (model
-utama, real-time) **dan** `mvit_v2.onnx` (diintegrasikan sebagai pembanding akurasi-vs-efisiensi
-langsung di app, bukan cuma dokumentasi) di-copy manual dari `Export/Output/onnx/` ke situ — tidak
-ada dependency source code/submodule ke repo ini. App sudah tervalidasi berjalan di device fisik
-(Poco M4 Pro): rekam gestur 5 detik → CNNsa-BiLSTM dijalankan di 10 jendela geser sepanjang
-rekaman (menghindari kebutuhan timing presisi dari pengguna) sekaligus MViTv2 atas klip yang sama
-→ gloss + confidence + latency kedua model ditampilkan berdampingan, tersimpan ke Riwayat untuk
-ditinjau ulang / diekspor sebagai JSON. Detail lengkap (fitur, arsitektur kode, root-cause
-diagnosis bug handedness+rotasi yang sempat bikin CNNsa-BiLSTM gagal total saat live testing, dan
-seluruh riwayat keputusan) ada di `BISINDO_ANDROID_APP/README.md` dan `PROGRESS.md`.
-
----
-
-## 📋 Requirements
-
-Daftar lengkap ada di `Requirements.txt` (`pip install -r Requirements.txt` install semuanya sekali jalan).
-Inti dependency:
-
-```
-torch==2.11.0+cu128
-torchvision==0.26.0+cu128
-opencv-contrib-python==4.11.0.86  # JANGAN install opencv-python terpisah — konflik DLL di Windows
-mediapipe==0.10.21                # dipin: versi >=0.10.30 (termasuk 1.0.0) menghapus API mp.solutions
-Pillow>=10.0.0
-numpy==1.26.4                     # dipin <2: mediapipe==0.10.21 mensyaratkan numpy<2
-scikit-learn>=1.4.0
-onnx>=1.17.0
-onnxruntime>=1.20.0
+python Export/Scripts/export_cnnsa_bilstm.py
+python Export/Scripts/export_mvit_v2.py
+python Export/Scripts/validate_onnx.py
 ```
 
-> ⚠️ **mediapipe & numpy sengaja dipin ke versi lama** (bukan salah ketik): mulai mediapipe 0.10.30,
-> Google menghapus total API `mediapipe.solutions` yang dipakai `keypoint_extractor.py` — hanya
-> versi ≤0.10.21 yang masih punya `mp.solutions.hands`. Detail lengkap ada di komentar
-> `Requirements.txt`.
+Training curves can be viewed with
+`tensorboard --logdir Training/Output/cnnsa_bilstm/logs` (or `mvit_v2/logs`).
 
-Install PyTorch dengan GPU support (CUDA 12.8 — wajib untuk GPU Blackwell/RTX 50-series, tetap
-backward-compatible untuk GPU NVIDIA generasi lama):
-```bash
-pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 \
-  --extra-index-url https://download.pytorch.org/whl/cu128
-```
+Results may differ slightly from the table above because GPU training is not fully
+deterministic.
 
----
+### 4. Use the models in the Android app
 
-## 📚 References
+Copy `cnnsa_bilstm.onnx`, `mvit_v2.onnx`, and `mvit_v2.onnx.data` from `Export/Output/onnx/`
+to `app/src/main/assets/` of
+[BISINDO_ANDROID_APP](https://github.com/TottAditS/BISINDO_ANDROID_APP) and build it as
+described in that repository.
 
-- Tang et al. (2022) — CNN-LSTM-Attention untuk prediksi adaptif
-- Aljabar & Suharjito (2020) — BISINDO recognition framework
-- Kindy et al. (2025) — Mobile deployment untuk sign language recognition
-- **Word-Level BISINDO: A Novel Video Indonesian Sign Language Dataset and Baseline Methods**
-  (*Procedia Computer Science*, vol. 269, pp. 249–258, 2025) — sumber dataset WLBisindo yang
-  dipakai repo ini, dan referensi baseline transformer (SPOTER, Siformer, **MViTv2** — MViTv2
-  yang diimplementasikan di `Training/MViTv2/` sebagai pembanding CNNsa-BiLSTM).
+## Training settings
 
----
+| | CNNsa-BiLSTM | MViTv2-S |
+|---|---|---|
+| Input | 30 x 126 keypoints | 16 x 224 x 224 RGB clip |
+| Training data | 7,840 sequences (1,120 originals, 4,480 augmented, 2,240 Signer-Mixup) | 1,120 original videos, random horizontal flip |
+| Optimizer | Adam, LR 1e-3, weight decay 1e-4 | Adam, LR 1e-5 backbone and 1e-3 head, weight decay 1e-4 |
+| Batch size | 64 | 4, mixed precision |
+| Max epochs | 100 | 30 |
+| LR schedule | ReduceLROnPlateau on validation loss | ReduceLROnPlateau on validation loss |
+| Early stopping | validation accuracy, patience 10 | validation accuracy, patience 7 |
 
-## 👤 Author
+Keypoint augmentation (training split only): horizontal flip (p = 0.5), rotation up to 20
+degrees, zoom 0.8-1.2, Gaussian jitter (std 0.02), speed change 0.85-1.15, and hand dropout
+(p = 0.15). Signer-Mixup interpolates two same-class sequences from different signers with a
+weight drawn from 0.3-0.7.
 
-**Totti**
-Thesis Project — BINUS
-2026-2027
+## On-device data
 
----
+The Android app exports one row per recording attempt.
 
-> ✅ **Status**: Pipeline lengkap — PreProcessing → FeatureExtraction → Training (CNNsa-BiLSTM +
-> baseline MViTv2) → Evaluasi → Perbandingan → **Export ke ONNX** — **sudah dijalankan
-> end-to-end di dataset asli (1600 video)** dan hasilnya sudah ada (lihat bagian Model
-> Evaluation & `Export/Export Setup.md`). **Aplikasi Android juga sudah selesai** (repo terpisah
-> `BISINDO_ANDROID_APP`), tervalidasi berjalan di device fisik dengan kedua model terintegrasi
-> untuk perbandingan langsung — lihat bagian "Step 8 — Aplikasi Android" di atas.
+| File | Device | Attempts |
+|---|---|---|
+| `AndroidEvaluation/poco_m4_pro_attempts.csv` | Xiaomi Poco M4 Pro (MediaTek Helio G96) | 160: 5 replayed dataset clips for each of the 32 classes |
+| `AndroidEvaluation/s24_ultra_attempts.csv` | Samsung Galaxy S24 Ultra | 31: 17 replayed clips of Hari, Ingat, and Pagi, then 14 live attempts |
+
+Columns: attempt number, target class, timestamp, raw and used frame counts, and for each model
+the predicted label, confidence, inference latency (ms), process CPU usage (%), application
+memory (PSS, KB), and whether the prediction was correct.
+
+## Classes
+
+| Index | Gloss | Index | Gloss | Index | Gloss | Index | Gloss |
+|---|---|---|---|---|---|---|---|
+| 0 | Air | 8 | Motor | 16 | Mengapa | 24 | Datang |
+| 1 | Belajar | 9 | Saya | 17 | Bagaimana | 25 | Teman |
+| 2 | Cari | 10 | Terima kasih | 18 | Merah | 26 | Keluarga |
+| 3 | Hari | 11 | Tuli | 19 | Kuning | 27 | Rumah |
+| 4 | Ingat | 12 | Apa | 20 | Hijau | 28 | Pagi |
+| 5 | Lagi | 13 | Siapa | 21 | Hitam | 29 | Siang |
+| 6 | Maaf | 14 | Kapan | 22 | Dengar | 30 | Sore |
+| 7 | Makan | 15 | Di mana | 23 | Berangkat | 31 | Malam |
+
+## Dataset reference
+
+G. O. Kindy, G. Leonali, and H. Lucky, "Word-level BISINDO: A novel video Indonesian sign
+language dataset and baseline methods," Procedia Computer Science, vol. 269, pp. 249-258, 2025,
+doi: 10.1016/j.procs.2025.08.277.
+
+## Authors
+
+Totti Adithana Sunarto and Benfano Soewito, Master of Computer Science, BINUS Graduate Program,
+Bina Nusantara University, Jakarta, Indonesia.

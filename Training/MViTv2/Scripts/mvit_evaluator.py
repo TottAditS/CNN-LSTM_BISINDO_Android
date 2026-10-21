@@ -1,18 +1,10 @@
 """
-Training/MViTv2/Scripts/mvit_evaluator.py
-============================================
-Script untuk mengevaluasi MViTv2 yang sudah di-fine-tune, menggunakan test split.
-- Mengalkulasi metrik: Accuracy, Precision, Recall, F1 (weighted & per-class)
-- Membuat & menyimpan Confusion Matrix (seaborn heatmap)
-- Menghitung waktu inferensi per clip (CPU benchmark)
-- Menghitung ukuran model (MB) dan jumlah parameter
-- Menyimpan ringkasan evaluasi sebagai "transformer_evaluation_summary.json" ke
-  RESULTS_DIR (shared) -- path yang SAMA yang dibaca Training/Scripts/comparator.py,
-  jadi comparator.py tidak perlu diubah sama sekali.
+Evaluates the fine-tuned MViTv2 on the test split.
 
-Catatan: benchmark CPU di sini murni untuk tabel perbandingan riset (skripsi),
-BUKAN klaim MViTv2 layak deploy ke Android -- model ini >131MB dan jauh di atas
-budget model mobile, beda dengan CNNsa-BiLSTM yang memang didesain untuk itu.
+Computes accuracy and weighted and per-class precision, recall, and F1, saves a
+confusion matrix plot, benchmarks CPU latency per clip, reports model size and
+parameter count, and writes transformer_evaluation_summary.json to RESULTS_DIR,
+where comparator.py reads it.
 """
 
 import sys
@@ -38,7 +30,7 @@ from Training.MViTv2.Scripts.mvit_dataset import build_mvit_datasets
 class MViTEvaluator:
     def __init__(self, model_path: Path):
         self.model_path = model_path
-        self.device = torch.device("cpu")  # Evaluasi performa CPU untuk tabel perbandingan
+        self.device = torch.device("cpu")  # CPU latency for the comparison table
 
         create_output_dirs()
 
@@ -52,8 +44,7 @@ class MViTEvaluator:
         print("\n[MViTEvaluator] Loading trained model on CPU...")
         checkpoint = torch.load(self.model_path, map_location=self.device)
 
-        # pretrained=False -- bobot sesungguhnya datang dari checkpoint hasil fine-tune,
-        # bukan dari Kinetics-400 lagi (hemat waktu, tidak perlu download ulang).
+        # The weights come from the fine-tuned checkpoint, so Kinetics-400 is not downloaded
         self.model = build_mvit_v2(
             num_classes=MODEL_CONFIG["num_classes"],
             freeze_until_block=MODEL_CONFIG["freeze_until_block"],
@@ -73,8 +64,7 @@ class MViTEvaluator:
         return total, trainable
 
     def benchmark_inference(self, num_runs: int = 20) -> float:
-        """Benchmark latensi inferensi per clip dalam milidetik di CPU (lebih sedikit run
-        dari evaluator CNNsa-BiLSTM karena MViTv2 jauh lebih berat per forward pass)."""
+        """Mean CPU latency per clip in milliseconds (fewer runs than for CNNsa-BiLSTM)."""
         dummy_input = torch.randn(1, 3, CLIP_LENGTH, *FRAME_SIZE).to(self.device)
 
         for _ in range(3):
@@ -90,7 +80,7 @@ class MViTEvaluator:
 
         avg_ms = np.mean(times)
         print(f"\n[MViTEvaluator] Inference Time Benchmark (CPU):")
-        print(f"  Rata-rata: {avg_ms:.2f} ms per clip")
+        print(f"  Mean: {avg_ms:.2f} ms per clip")
         return float(avg_ms)
 
     def evaluate(self) -> dict:
@@ -114,7 +104,7 @@ class MViTEvaluator:
         prec_w = precision_score(all_targets, all_preds, average="weighted")
         rec_w = recall_score(all_targets, all_preds, average="weighted")
 
-        print(f"\n[MViTEvaluator] Hasil Evaluasi Akhir:")
+        print(f"\n[MViTEvaluator] Test results:")
         print(f"  Accuracy  : {acc*100:.2f}%")
         print(f"  F1-Score  : {f1_w*100:.2f}%")
         print(f"  Precision : {prec_w*100:.2f}%")
@@ -146,11 +136,11 @@ class MViTEvaluator:
             "classification_report": report,
         }
 
-        # Path SAMA yang dibaca Training/Scripts/comparator.py -- zero perubahan di comparator.py
+        # Read by Training/Scripts/comparator.py
         summary_path = RESULTS_DIR / "transformer_evaluation_summary.json"
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
-        print(f"  Summary disimpan ke: {summary_path}")
+        print(f"  Summary saved to: {summary_path}")
 
         return summary
 
@@ -168,7 +158,7 @@ class MViTEvaluator:
                 xticklabels=self.label_map,
                 yticklabels=self.label_map,
             )
-            plt.title("Confusion Matrix -- MViTv2 (Test Set)")
+            plt.title("Confusion Matrix, MViTv2 (test split)")
             plt.xlabel("Predicted Labels")
             plt.ylabel("True Labels")
             plt.tight_layout()
@@ -176,15 +166,15 @@ class MViTEvaluator:
             plot_path = RESULTS_DIR / "confusion_matrix_mvit_v2.png"
             plt.savefig(plot_path, dpi=150)
             plt.close()
-            print(f"  Confusion Matrix tersimpan ke: {plot_path}")
+            print(f"  Confusion matrix saved to: {plot_path}")
         except ImportError:
-            print("  [WARN] matplotlib / seaborn tidak terinstall, skip plotting confusion matrix.")
+            print("  [WARN] matplotlib or seaborn is not installed, skipping the confusion matrix plot.")
 
 
 def run_evaluation():
     checkpoint_path = CHECKPOINT_DIR / CHECKPOINT_CONFIG["filename"]
     if not checkpoint_path.exists():
-        print(f"[MViTEvaluator] ERROR: Model checkpoint tidak ditemukan di {checkpoint_path}")
+        print(f"[MViTEvaluator] ERROR: checkpoint not found at {checkpoint_path}")
         return
 
     evaluator = MViTEvaluator(checkpoint_path)

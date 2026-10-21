@@ -1,98 +1,51 @@
-# ══════════════════════════════════════════════════════════════
-# CNN-LSTM BISINDO Android — Requirements
-# ══════════════════════════════════════════════════════════════
-# Target: Python 3.11 (Windows). Python 3.10-3.12 juga aman.
+# Python 3.11 (3.10-3.12 also work), tested on Windows 11.
 #
 #   pip install -r Requirements.txt
 #
-# Seluruh pin di file ini sudah diverifikasi resolve & install bersih
-# (real `pip install`, bukan cuma dry-run) di venv Python 3.11 bersih,
-# termasuk `mediapipe.solutions.hands.Hands()` benar-benar bisa
-# diinstansiasi dan diproses.
-#
-# ── Catatan GPU (PENTING) ───────────────────────────────────────
-# - PyTorch: wheel di bawah pakai CUDA 12.8 (cu128). Ini WAJIB kalau GPU
-#   kamu Blackwell / RTX 50-series (mis. RTX 5060/5070/5080/5090,
-#   compute capability sm_120) — wheel CUDA lama (cu121/cu124) TIDAK
-#   punya kernel sm_120 dan akan gagal dengan "CUDA error: no kernel
-#   image is available for execution on the device", atau diam-diam
-#   training jalan di CPU. Wheel cu128 tetap backward-compatible untuk
-#   GPU NVIDIA generasi lama (Ampere/Ada/dst), jadi aman dipakai semua.
-#   Cek dulu compute capability GPU kamu: `nvidia-smi --query-gpu=compute_cap --format=csv`
-# - MediaPipe: GPU delegate resmi TIDAK didukung di Windows (CPU-only) —
-#   lihat github.com/google-ai-edge/mediapipe/issues/5126. Ekstraksi
-#   keypoint MediaPipe akan selalu jalan di CPU meskipun training model
-#   pakai GPU. Ini normal, bukan bug — estimasi waktu di
-#   FeatureExtraction Setup.md sudah memperhitungkan ini.
-# ══════════════════════════════════════════════════════════════
+# GPU notes:
+# - The PyTorch wheels below are built for CUDA 12.8 (cu128). RTX 50-series GPUs
+#   (compute capability sm_120) need this build; it also runs on older NVIDIA GPUs.
+# - MediaPipe has no GPU support on Windows, so keypoint extraction runs on the CPU.
 
-# ── Core Deep Learning (PyTorch — GPU CUDA 12.8) ──────────────
-# --extra-index-url memberitahu pip untuk cari torch versi CUDA di sini
-# dulu, lalu fallback ke PyPI biasa untuk package lain di bawah.
+# PyTorch (CUDA 12.8)
 --extra-index-url https://download.pytorch.org/whl/cu128
 torch==2.11.0+cu128
 torchvision==0.26.0+cu128
 
-# ── Computer Vision & MediaPipe ───────────────────────────────
-# PENTING — mediapipe DIPIN ke 0.10.21 (bukan >=1.0.0):
-# mulai mediapipe 0.10.30 (termasuk 1.0.0), Google MENGHAPUS TOTAL API lama
-# `mediapipe.solutions` (dipakai FeatureExtraction/Scripts/keypoint_extractor.py
-# via `mp.solutions.hands.Hands(...)`) dan hanya menyisakan Tasks API baru
-# (`mediapipe.tasks.vision`, butuh download file model .task terpisah).
-# 0.10.21 adalah versi TERBARU yang masih punya `mediapipe.solutions` —
-# dikonfirmasi via install nyata (bukan cuma cek metadata).
-# Jangan naikkan versi mediapipe tanpa menulis ulang keypoint_extractor.py
-# ke Tasks API terlebih dahulu.
-#
-# opencv-contrib-python juga DIPIN (bukan cuma floor >=): versi >=4.12
-# mensyaratkan numpy>=2, yang BENTROK dengan mediapipe==0.10.21 yang
-# mensyaratkan numpy<2. 4.11.0.86 adalah versi terakhir yang masih fleksibel
-# soal numpy. Jangan install `opencv-python` terpisah — mediapipe & pin ini
-# sudah menyediakan opencv-contrib-python (superset API-compatible);
-# menaruh keduanya sekaligus di Windows sering bikin konflik DLL saat
-# `import cv2` (dua build native cv2 berbeda saling menimpa di site-packages).
+# Computer vision
+# mediapipe is pinned to 0.10.21, the last release with the mediapipe.solutions API
+# used by FeatureExtraction/Scripts/keypoint_extractor.py.
+# opencv-contrib-python 4.12+ requires numpy>=2, which conflicts with mediapipe 0.10.21.
+# Do not also install opencv-python; two OpenCV builds conflict on Windows.
 opencv-contrib-python==4.11.0.86
 mediapipe==0.10.21
 Pillow>=10.0.0
 
-# ── Numerics & Data ───────────────────────────────────────────
-# numpy DIPIN ke <2 (1.26.4, rilis 1.x terakhir) karena mediapipe==0.10.21
-# mensyaratkan numpy<2 secara keras. Ini juga otomatis kompatibel dengan
-# opencv-contrib-python==4.11.0.86, scipy, scikit-learn, torch di bawah.
+# Numerics (mediapipe 0.10.21 requires numpy<2)
 numpy==1.26.4
 scipy>=1.13.0,<2.3
 
-# protobuf DIPIN eksplisit: mediapipe==0.10.21 minta protobuf<5,>=4.25.3,
-# sedangkan tensorboard>=2.21 minta protobuf>=6.31 (BENTROK) — makanya
-# tensorboard juga di-cap di bawah. Rentang ini sudah dites resolve bersih
-# bareng onnx & onnxruntime (keduanya cuma minta protobuf>=4.25.x, tanpa upper bound).
+# mediapipe 0.10.21 requires protobuf<5; tensorboard 2.21+ requires protobuf>=6.31
 protobuf>=4.25.3,<5
 
-# ── Visualization ─────────────────────────────────────────────
+# Visualization
 matplotlib>=3.8.0
 seaborn>=0.13.0
 
-# ── ML Utilities ──────────────────────────────────────────────
+# ML utilities
 scikit-learn>=1.4.0
 tqdm>=4.65.0
 
-# ── Notebook ──────────────────────────────────────────────────
+# Notebooks
 jupyter>=1.0.0
 ipykernel>=6.0.0
 ipywidgets>=8.0.0
 
-# ── Model Export (Android via ONNX) ───────────────────────────
+# ONNX export and validation
 onnx>=1.17.0
 onnxruntime>=1.20.0
-# onnxscript WAJIB untuk export MViTv2 (Export/Scripts/export_mvit_v2.py) — model itu
-# butuh exporter ONNX baru (torch.onnx.export(..., dynamo=True)), bukan legacy. Exporter
-# legacy menghasilkan model yang "sukses" di-export tapi GAGAL dijalankan di ONNX Runtime
-# ("Loop subgraph input 0 has unknown shape") karena pooling-attention MViT. CNNsa-BiLSTM
-# tidak butuh ini (masih pakai exporter legacy, sudah tervalidasi). Detail lengkap ada di
-# komentar Export/Config/export_config.py.
+# onnxscript is needed by the dynamo exporter used for MViTv2
 onnxscript>=0.7.0
 
-# ── Experiment Tracking ───────────────────────────────────────
-# DIBATASI <2.21 — versi 2.21+ menaikkan syarat protobuf ke >=6.31,
-# bentrok dengan mediapipe==0.10.21 (lihat catatan protobuf di atas).
+# Experiment tracking (capped because of the protobuf pin above)
 tensorboard>=2.16.0,<2.21.0

@@ -1,13 +1,8 @@
 """
-Training/Config/shared_config.py
-=================================
-Konfigurasi yang dipakai BERSAMA oleh semua model di Training/ (CNNsaBiLSTM/, MViTv2/, dst)
-dan oleh Training/Scripts/comparator.py.
+Settings shared by both models and by Training/Scripts/comparator.py.
 
-Cuma berisi lokasi output "results" -- tempat tiap model menyimpan *_evaluation_summary.json
-setelah eval, yang lalu dibaca comparator.py untuk bikin tabel perbandingan. Config yang
-spesifik ke satu model (hyperparameter, path checkpoint/log model itu sendiri) tetap hidup
-di Config/ masing-masing model (mis. Training/CNNsaBiLSTM/Config/train_config.py).
+Each model writes its *_evaluation_summary.json to RESULTS_DIR, where the
+comparator reads it. Model-specific settings live in each model's Config/.
 """
 
 from pathlib import Path
@@ -19,8 +14,8 @@ def find_project_root() -> Path:
         if (parent / "Datasets").exists() and (parent / "PreProcessing").exists():
             return parent
     raise RuntimeError(
-        "Tidak bisa menemukan root project. "
-        "Pastikan direktori Datasets/ dan PreProcessing/ ada di root."
+        "Project root not found. "
+        "The root must contain the Datasets/ and PreProcessing/ folders."
     )
 
 

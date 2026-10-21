@@ -1,16 +1,9 @@
 """
-Training/MViTv2/Scripts/mvit_trainer.py
-==========================================
-Script untuk fine-tune MViTv2 (baseline transformer).
-- Dataset & DataLoader loading (raw video clip, lihat mvit_dataset.py)
-- Training & Validation loop dengan mixed precision (AMP) -- perlu untuk muat di VRAM 8GB
-- Differential learning rate (backbone kecil, head besar)
-- Early stopping & LR scheduling
-- Saving checkpoints
-- TensorBoard logging
+MViTv2 fine-tuning: RGB clip loading (mvit_dataset.py), mixed-precision training
+and validation loop, separate learning rates for backbone and head, early
+stopping, LR scheduling, checkpointing, and TensorBoard logging.
 
-Struktur mengikuti Training/CNNsaBiLSTM/Scripts/trainer.py supaya konsisten, dengan
-penyesuaian untuk model video yang jauh lebih berat (batch kecil, AMP, GradScaler).
+Follows the structure of Training/CNNsaBiLSTM/Scripts/trainer.py.
 """
 
 import sys
@@ -38,14 +31,12 @@ class MViTTrainer:
     def __init__(self, device: torch.device):
         self.device = device
 
-        # 1. Setup seed & directory
         torch.manual_seed(TRAIN_CONFIG["random_seed"])
         create_output_dirs()
 
-        # 2. TensorBoard logger
         self.writer = SummaryWriter(log_dir=str(LOG_DIR))
 
-        # 3. Load datasets (raw video clip, split shared dgn CNNsa-BiLSTM)
+        # RGB clips, same split as CNNsa-BiLSTM
         print("\n[MViTTrainer] Loading datasets...")
         self.train_dataset, self.val_dataset, _ = build_mvit_datasets()
 
@@ -53,7 +44,7 @@ class MViTTrainer:
             self.train_dataset,
             batch_size=TRAIN_CONFIG["batch_size"],
             shuffle=True,
-            num_workers=0,  # Amankan dari multi-processing issues di Windows
+            num_workers=0,  # avoids multiprocessing issues on Windows
             pin_memory=True if torch.cuda.is_available() else False,
         )
         self.val_loader = DataLoader(
@@ -67,7 +58,6 @@ class MViTTrainer:
         print(f"  Train samples: {len(self.train_dataset)} (Batches: {len(self.train_loader)})")
         print(f"  Val samples  : {len(self.val_dataset)} (Batches: {len(self.val_loader)})")
 
-        # 4. Initialize model
         print("\n[MViTTrainer] Initializing MViTv2 model...")
         self.model = build_mvit_v2(
             num_classes=MODEL_CONFIG["num_classes"],
@@ -80,7 +70,7 @@ class MViTTrainer:
         total = sum(p.numel() for p in self.model.parameters())
         print(f"  Trainable params: {trainable:,} / {total:,} ({trainable/total*100:.1f}%)")
 
-        # 5. Loss & Optimizer (differential LR: backbone kecil, head besar)
+        # Lower LR for the pretrained backbone, higher LR for the new head
         self.criterion = nn.CrossEntropyLoss()
         param_groups = get_param_groups(
             self.model,
@@ -89,7 +79,6 @@ class MViTTrainer:
         )
         self.optimizer = torch.optim.Adam(param_groups, weight_decay=TRAIN_CONFIG["weight_decay"])
 
-        # 6. Scheduler
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
             mode="min" if LR_SCHEDULER_CONFIG["monitor"] == "val_loss" else "max",
@@ -98,13 +87,12 @@ class MViTTrainer:
             min_lr=LR_SCHEDULER_CONFIG["min_lr"],
         )
 
-        # 7. Mixed precision (AMP) -- wajib untuk muat MViTv2 + clip 16x224x224 di VRAM 8GB
+        # Mixed precision keeps MViTv2 with 16x224x224 clips within 8 GB of VRAM
         self.use_amp = TRAIN_CONFIG["use_amp"] and torch.cuda.is_available()
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         if TRAIN_CONFIG["use_amp"] and not torch.cuda.is_available():
-            print("  [WARN] use_amp=True tapi tidak ada GPU -- AMP dinonaktifkan (CPU tidak didukung).")
+            print("  [WARN] use_amp=True but no GPU is available, AMP is disabled.")
 
-        # 8. Early stopping variables
         self.best_val_acc = 0.0
         self.best_val_loss = float("inf")
         self.patience_counter = 0

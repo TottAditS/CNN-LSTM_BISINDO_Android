@@ -1,23 +1,14 @@
 """
-Export/Scripts/validate_onnx.py
-==================================
-Validasi hasil export ONNX: bandingkan output model PyTorch asli vs model ONNX (dijalankan
-lewat ONNX Runtime, CPUExecutionProvider) memakai input YANG SAMA.
+Checks the ONNX exports against the original PyTorch models on the same input,
+using ONNX Runtime on the CPU (CPUExecutionProvider).
 
-CPU dipilih sengaja (bukan GPU): (1) ini yang benar-benar dites & jalan di mesin ini --
-`onnxruntime-gpu` butuh CUDA 13 + cuDNN 9 yang belum terpasang di sistem, beda dari PyTorch
-yang bundle CUDA 12.8 sendiri di dalam wheel-nya; (2) realistisnya Android juga default jalan
-CPU (atau NNAPI/GPU delegate khusus, bukan CUDA ala desktop), jadi validasi CPU lebih relevan
-ke kondisi target deployment.
+A real test sample is used when the test data exists, otherwise random input.
+A model passes when the maximum absolute logit difference is below ATOL and the
+predicted class is the same.
 
-Kalau ada data test asli (frame_manifest.json / test_sequences.npz), dipakai satu sample
-sungguhan -- kalau belum ada (mis. baru mau coba export tanpa jalanin training/data dulu),
-fallback ke random dummy input.
-
-Selain print ke console, script ini juga MENYIMPAN hasilnya:
-- Tabular : Export/Output/validate_onnx_summary.json
-- Visual  : Export/Output/charts/onnx_latency_comparison.png (bar chart PyTorch vs ONNX
-            Runtime, kedua model)
+Outputs:
+- Export/Output/validate_onnx_summary.json
+- Export/Output/charts/onnx_latency_comparison.png
 """
 
 import sys
@@ -35,34 +26,34 @@ from Export.Config.export_config import (
     EXPORT_OUTPUT_DIR, EXPORT_CHARTS_DIR, create_output_dirs,
 )
 
-ATOL = 1e-4  # toleransi selisih absolut PyTorch vs ONNX Runtime (float32, beda backend wajar ada sedikit selisih)
+ATOL = 1e-4  # maximum absolute logit difference between PyTorch and ONNX Runtime
 
 
 def _get_cnnsa_sample():
-    """Ambil satu sample asli dari test_sequences.npz kalau ada, else random."""
+    """One real sample from test_sequences.npz if available, otherwise random input."""
     try:
         from Training.CNNsaBiLSTM.Config.train_config import TEST_NPZ
         if TEST_NPZ.exists():
             data = np.load(TEST_NPZ, allow_pickle=True)
             x = data["X"][0:1].astype(np.float32)  # (1, 30, 126)
-            print(f"[ValidateONNX] CNNsa-BiLSTM: pakai sample asli dari {TEST_NPZ.name} (label={data['y'][0]})")
+            print(f"[ValidateONNX] CNNsa-BiLSTM: using a real sample from {TEST_NPZ.name} (label={data['y'][0]})")
             return torch.from_numpy(x)
     except Exception as e:
-        print(f"[ValidateONNX] CNNsa-BiLSTM: gagal load sample asli ({e}), pakai random dummy.")
+        print(f"[ValidateONNX] CNNsa-BiLSTM: could not load a real sample ({e}), using random input.")
     return torch.randn(*CNNSA_INPUT_SHAPE)
 
 
 def _get_mvit_sample():
-    """Ambil satu clip video asli dari test split MViTv2 kalau ada, else random."""
+    """One real clip from the MViTv2 test split if available, otherwise random input."""
     try:
         from Training.MViTv2.Scripts.mvit_dataset import build_mvit_datasets
         _, _, test_ds = build_mvit_datasets()
         if len(test_ds) > 0:
             clip, label = test_ds[0]
-            print(f"[ValidateONNX] MViTv2: pakai sample asli dari test split (label={label})")
+            print(f"[ValidateONNX] MViTv2: using a real clip from the test split (label={label})")
             return clip.unsqueeze(0)  # (1, 3, 16, 224, 224)
     except Exception as e:
-        print(f"[ValidateONNX] MViTv2: gagal load sample asli ({e}), pakai random dummy.")
+        print(f"[ValidateONNX] MViTv2: could not load a real clip ({e}), using random input.")
     return torch.randn(*MVIT_INPUT_SHAPE)
 
 
@@ -73,7 +64,7 @@ def _compare(name: str, pytorch_out: np.ndarray, onnx_out: np.ndarray) -> tuple[
 
     print(f"\n[ValidateONNX] === {name} ===")
     print(f"  Max abs diff (logits) : {max_diff:.8f} (threshold: {ATOL})")
-    print(f"  Prediksi kelas sama?  : {same_pred} "
+    print(f"  Same predicted class  : {same_pred} "
           f"(PyTorch={int(np.argmax(pytorch_out))}, ONNX={int(np.argmax(onnx_out))})")
     print(f"  STATUS                : {'PASS' if ok else 'FAIL'}")
     return ok, max_diff, same_pred
@@ -92,7 +83,7 @@ def _benchmark(fn, num_runs: int = 20) -> float:
 
 def validate_cnnsa_bilstm() -> dict:
     if not CNNSA_ONNX_PATH.exists():
-        print(f"[ValidateONNX] ERROR: {CNNSA_ONNX_PATH} tidak ditemukan. Jalankan export_cnnsa_bilstm.py dulu.")
+        print(f"[ValidateONNX] ERROR: {CNNSA_ONNX_PATH} not found. Run export_cnnsa_bilstm.py first.")
         return {"ok": False}
 
     from Training.CNNsaBiLSTM.Config.train_config import CHECKPOINT_DIR, CHECKPOINT_CONFIG
@@ -125,8 +116,8 @@ def validate_cnnsa_bilstm() -> dict:
 
     pt_ms = _benchmark(lambda: model(x))
     onnx_ms = _benchmark(lambda: sess.run(None, {"keypoints": x_np}))
-    print(f"  Latensi PyTorch (CPU) : {pt_ms:.3f} ms")
-    print(f"  Latensi ONNX RT (CPU) : {onnx_ms:.3f} ms")
+    print(f"  PyTorch latency (CPU) : {pt_ms:.3f} ms")
+    print(f"  ONNX RT latency (CPU) : {onnx_ms:.3f} ms")
 
     return {
         "ok": ok, "max_abs_diff": max_diff, "same_prediction": same_pred,
@@ -136,7 +127,7 @@ def validate_cnnsa_bilstm() -> dict:
 
 def validate_mvit_v2() -> dict:
     if not MVIT_ONNX_PATH.exists():
-        print(f"[ValidateONNX] ERROR: {MVIT_ONNX_PATH} tidak ditemukan. Jalankan export_mvit_v2.py dulu.")
+        print(f"[ValidateONNX] ERROR: {MVIT_ONNX_PATH} not found. Run export_mvit_v2.py first.")
         return {"ok": False}
 
     from Training.MViTv2.Config.mvit_config import CHECKPOINT_DIR, CHECKPOINT_CONFIG
@@ -167,8 +158,8 @@ def validate_mvit_v2() -> dict:
 
     pt_ms = _benchmark(lambda: model(x), num_runs=5)
     onnx_ms = _benchmark(lambda: sess.run(None, {"video_clip": x_np}), num_runs=5)
-    print(f"  Latensi PyTorch (CPU) : {pt_ms:.3f} ms")
-    print(f"  Latensi ONNX RT (CPU) : {onnx_ms:.3f} ms")
+    print(f"  PyTorch latency (CPU) : {pt_ms:.3f} ms")
+    print(f"  ONNX RT latency (CPU) : {onnx_ms:.3f} ms")
 
     return {
         "ok": ok, "max_abs_diff": max_diff, "same_prediction": same_pred,
@@ -180,13 +171,13 @@ def save_validation_summary(cnnsa_result: dict, mvit_result: dict) -> Path:
     out_path = EXPORT_OUTPUT_DIR / "validate_onnx_summary.json"
     with open(out_path, "w") as f:
         json.dump({"cnnsa_bilstm": cnnsa_result, "mvit_v2": mvit_result}, f, indent=2)
-    print(f"\n[ValidateONNX] Ringkasan validasi disimpan ke: {out_path}")
+    print(f"\n[ValidateONNX] Validation summary saved to: {out_path}")
     return out_path
 
 
 def plot_latency_comparison(cnnsa_result: dict, mvit_result: dict) -> Path | None:
     if not cnnsa_result.get("ok") or not mvit_result.get("ok"):
-        print("[ValidateONNX] Salah satu validasi gagal/tidak lengkap, skip plot_latency_comparison.")
+        print("[ValidateONNX] A validation failed or is incomplete, skipping the latency chart.")
         return None
 
     import matplotlib.pyplot as plt
@@ -209,9 +200,9 @@ def plot_latency_comparison(cnnsa_result: dict, mvit_result: dict) -> Path | Non
             ax.annotate(f"{h:.2f} ms", xy=(bar.get_x() + bar.get_width() / 2, h),
                         xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9)
 
-    ax.set_ylabel("Latensi (ms)")
+    ax.set_ylabel("Latency (ms)")
     ax.set_yscale("log")
-    ax.set_title("Latensi Inferensi CPU -- PyTorch vs ONNX Runtime")
+    ax.set_title("CPU inference latency, PyTorch vs ONNX Runtime")
     ax.set_xticks(x)
     ax.set_xticklabels(models)
     ax.legend()
@@ -220,16 +211,16 @@ def plot_latency_comparison(cnnsa_result: dict, mvit_result: dict) -> Path | Non
     out_path = EXPORT_CHARTS_DIR / "onnx_latency_comparison.png"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    print(f"[ValidateONNX] Chart latensi disimpan ke: {out_path}")
+    print(f"[ValidateONNX] Latency chart saved to: {out_path}")
     return out_path
 
 
 def validate_all():
     create_output_dirs()
-    print("[ValidateONNX] providers ONNX Runtime tersedia:", ort.get_available_providers())
+    print("[ValidateONNX] available ONNX Runtime providers:", ort.get_available_providers())
     cnnsa_result = validate_cnnsa_bilstm()
     mvit_result = validate_mvit_v2()
-    print("\n[ValidateONNX] === Ringkasan ===")
+    print("\n[ValidateONNX] === Summary ===")
     print(f"  CNNsa-BiLSTM: {'PASS' if cnnsa_result.get('ok') else 'FAIL'}")
     print(f"  MViTv2      : {'PASS' if mvit_result.get('ok') else 'FAIL'}")
 

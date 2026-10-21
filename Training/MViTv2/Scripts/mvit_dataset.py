@@ -1,13 +1,10 @@
 """
-Training/MViTv2/Scripts/mvit_dataset.py
-==========================================
-Dataset PyTorch untuk MViTv2: load raw RGB frame (output PreProcessing, BUKAN
-keypoint), temporal sample/pad ke CLIP_LENGTH, normalize sesuai spesifikasi
-Kinetics-400 (mean/std torchvision), augmentasi (flip) khusus train.
+MViTv2 dataset: loads the RGB frames from PreProcessing, samples or pads them
+to CLIP_LENGTH, normalizes with the Kinetics-400 mean and std, and applies a
+random horizontal flip to the training split.
 
-Split video-level dilakukan via FeatureExtraction/Scripts/video_split.py yang
-SAMA dengan yang dipakai FeatureExtraction/Scripts/sequence_builder.py (CNNsa-BiLSTM)
--- supaya video val/test kedua model identik.
+The video-level split comes from FeatureExtraction/Scripts/video_split.py, the
+same function used for CNNsa-BiLSTM, so both models share the val/test videos.
 """
 
 import sys
@@ -26,16 +23,15 @@ from Training.MViTv2.Config.mvit_config import (
 )
 from FeatureExtraction.Scripts.video_split import stratified_video_split
 
-MEAN = np.array(KINETICS_MEAN, dtype=np.float32).reshape(1, 1, 1, 3)  # broadcast ke (T,H,W,C)
+MEAN = np.array(KINETICS_MEAN, dtype=np.float32).reshape(1, 1, 1, 3)  # broadcasts over (T, H, W, C)
 STD  = np.array(KINETICS_STD, dtype=np.float32).reshape(1, 1, 1, 3)
 
 
 def _temporal_sample_or_pad(frames: np.ndarray, clip_length: int) -> np.ndarray:
     """
-    Resize dimensi temporal frame video ke clip_length.
-    - T > clip_length : uniform sampling (linspace) sepanjang video
-    - T < clip_length : pad dengan mengulang frame terakhir
-    - T == clip_length: langsung pakai
+    Resize a video in time to clip_length frames.
+    - T > clip_length: uniform sampling across the video
+    - T < clip_length: repeat the last frame
 
     Args:
         frames: (T, H, W, C) uint8
@@ -55,15 +51,15 @@ def _temporal_sample_or_pad(frames: np.ndarray, clip_length: int) -> np.ndarray:
 
 
 def _horizontal_flip(frames: np.ndarray) -> np.ndarray:
-    """Mirror tiap frame secara horizontal. frames: (T, H, W, C)."""
+    """Mirror every frame horizontally. frames: (T, H, W, C)."""
     return frames[:, :, ::-1, :].copy()
 
 
 class VideoClipDataset(Dataset):
     """
     Args:
-        items    : subset dari frame_manifest.json (satu split)
-        is_train : True = augmentasi horizontal-flip (p=0.5) diaktifkan
+        items    : frame_manifest.json items of one split
+        is_train : enables the random horizontal flip
     """
 
     def __init__(self, items: List[Dict], is_train: bool = False, flip_prob: float = 0.5):
@@ -84,11 +80,11 @@ class VideoClipDataset(Dataset):
         if self.is_train and self.rng.random() < self.flip_prob:
             frames = _horizontal_flip(frames)
 
-        # uint8 [0,255] -> float32 [0,1] -> normalize Kinetics mean/std
+        # uint8 [0, 255] -> float32 [0, 1] -> Kinetics normalization
         clip = frames.astype(np.float32) / 255.0
         clip = (clip - MEAN) / STD
 
-        # (T, H, W, C) -> (C, T, H, W), sesuai input torchvision video models
+        # (T, H, W, C) -> (C, T, H, W), the layout of torchvision video models
         clip = np.transpose(clip, (3, 0, 1, 2))
 
         return torch.from_numpy(clip).float(), int(item["label_idx"])
@@ -102,15 +98,12 @@ def load_manifest() -> List[Dict]:
 
 
 def build_mvit_datasets() -> Tuple[VideoClipDataset, VideoClipDataset, VideoClipDataset]:
-    """
-    Load frame_manifest.json, split (shared dengan CNNsa-BiLSTM), bungkus jadi
-    VideoClipDataset per split.
-    """
+    """Load the manifest, apply the shared split, and build one dataset per split."""
     manifest = load_manifest()
     if not manifest:
         raise FileNotFoundError(
-            f"frame_manifest.json tidak ditemukan di {FRAME_MANIFEST}. "
-            "Jalankan PreProcessing/PreProcess.ipynb terlebih dahulu."
+            f"frame_manifest.json not found at {FRAME_MANIFEST}. "
+            "Run PreProcessing/PreProcess.ipynb first."
         )
 
     train_items, val_items, test_items = stratified_video_split(
@@ -121,7 +114,7 @@ def build_mvit_datasets() -> Tuple[VideoClipDataset, VideoClipDataset, VideoClip
     val_ds   = VideoClipDataset(val_items, is_train=False)
     test_ds  = VideoClipDataset(test_items, is_train=False)
 
-    print(f"[MViTDataset] Train: {len(train_ds)} video | Val: {len(val_ds)} video | Test: {len(test_ds)} video")
+    print(f"[MViTDataset] Train: {len(train_ds)} videos | Val: {len(val_ds)} videos | Test: {len(test_ds)} videos")
     return train_ds, val_ds, test_ds
 
 

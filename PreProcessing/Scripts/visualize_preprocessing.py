@@ -1,12 +1,8 @@
 """
-PreProcessing/Scripts/visualize_preprocessing.py
-===================================================
-Script dokumentasi (bukan bagian pipeline produksi): menghasilkan visual
-perbandingan sebelum/sesudah tahap preprocessing pada satu video contoh,
-memakai step DAN parameter yang PERSIS SAMA dengan frame_extractor.py +
-PREPROCESSING_CONFIG (dataset_config.py) -- bukan reka ulang terpisah.
+Documentation figures for the preprocessing step (not part of the pipeline).
 
-Output:
+Applies the same steps and parameters as frame_extractor.py to one sample video
+and writes:
     PreProcessing/Output/charts/preprocessing_before_after.png
     PreProcessing/Output/charts/preprocessing_frame_sampling.png
 """
@@ -35,7 +31,7 @@ def load_raw_frame(video_path: Path, frame_index: int):
     ret, frame = cap.read()
     cap.release()
     if not ret:
-        raise RuntimeError(f"Gagal membaca frame {frame_index} dari {video_path}")
+        raise RuntimeError(f"Failed to read frame {frame_index} from {video_path}")
     return frame, total  # BGR, uint8
 
 
@@ -44,23 +40,21 @@ def build_before_after_figure():
     mid_idx = total_frames_info // 2
     raw_bgr, total = load_raw_frame(SAMPLE_VIDEO, mid_idx)
 
-    # --- exact same steps as frame_extractor.extract_frames_from_video ---
+    # Same steps as frame_extractor.extract_frames_from_video
     blurred_bgr = cv2.GaussianBlur(raw_bgr, tuple(frame_cfg["blur_kernel"]), frame_cfg["blur_sigma"])
     resized_bgr = cv2.resize(blurred_bgr, (frame_cfg["resize"][1], frame_cfg["resize"][0]))
     final_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
 
-    # for correct on-screen color display only (matplotlib expects RGB) -- NOT a pipeline step
+    # Conversion for display only (matplotlib expects RGB), not a pipeline step
     raw_display = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
     blurred_display = cv2.cvtColor(blurred_bgr, cv2.COLOR_BGR2RGB)
 
     panels = [
-        (raw_display, f"1. Frame Mentah (Sebelum)\n{raw_bgr.shape[1]}x{raw_bgr.shape[0]} px"),
-        (blurred_display, f"2. Setelah Gaussian Blur\nkernel {frame_cfg['blur_kernel']}, denoising"),
-        (final_rgb, f"3. Setelah Resize + RGB (Sesudah)\n{frame_cfg['resize'][1]}x{frame_cfg['resize'][0]} px, input final"),
+        (raw_display, f"1. Raw frame\n{raw_bgr.shape[1]}x{raw_bgr.shape[0]} px"),
+        (blurred_display, f"2. Gaussian blur\nkernel {frame_cfg['blur_kernel']}"),
+        (final_rgb, f"3. Resized, RGB (final input)\n{frame_cfg['resize'][1]}x{frame_cfg['resize'][0]} px"),
     ]
-    # width_ratios proportional to each panel's true aspect ratio (w/h), so every
-    # panel renders at its actual aspect within a shared row height -- avoids the
-    # square (224x224) panel being stretched/misaligned next to the wide (16:9) ones.
+    # Width ratios follow each panel's aspect ratio so the square panel is not stretched
     width_ratios = [img.shape[1] / img.shape[0] for img, _ in panels]
     fig, axes = plt.subplots(1, 3, figsize=(13, 5.2), gridspec_kw={"width_ratios": width_ratios})
     for ax, (img, title) in zip(axes, panels):
@@ -69,7 +63,7 @@ def build_before_after_figure():
         ax.axis("off")
 
     fig.suptitle(
-        f"Pipeline Pra-pemrosesan Frame -- Contoh: {SAMPLE_VIDEO.name} (frame ke-{mid_idx} dari {total})",
+        f"Frame preprocessing, sample {SAMPLE_VIDEO.name} (frame {mid_idx} of {total})",
         fontsize=12,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.93])
@@ -110,8 +104,8 @@ def build_frame_sampling_figure():
         ax.axis("off")
 
     fig.suptitle(
-        f"Uniform Temporal Sampling -- {original_fps:.1f} fps asli -> {frame_cfg['target_fps']} fps target "
-        f"({len(sampled_frames)} dari {total_frames} frame video terpakai)",
+        f"Uniform temporal sampling, {original_fps:.1f} fps to {frame_cfg['target_fps']} fps "
+        f"({len(sampled_frames)} of {total_frames} frames kept)",
         fontsize=11,
     )
     fig.tight_layout()

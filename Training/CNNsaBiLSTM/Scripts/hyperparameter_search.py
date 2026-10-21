@@ -1,54 +1,25 @@
 """
-Training/CNNsaBiLSTM/Scripts/hyperparameter_search.py
-========================================================
-Pencarian hyperparameter (grid kecil, dipilih manual berdasarkan alasan regularisasi)
-untuk CNNsa-BiLSTM. Tujuan: cari kombinasi yang menggeneralisasi lebih baik (val
-accuracy tinggi, GAP train-val kecil) dibanding konfigurasi produksi saat ini,
-tanpa overfitting.
+Small hand-picked hyperparameter search for CNNsa-BiLSTM.
 
-Tiap kali file ini dijalankan, itu SATU "run" baru -- disimpan ke folder tersendiri
-bertimestamp (Training/Output/hyperparameter_search/runs/<YYYYMMDD_HHMMSS>/), TIDAK
-menimpa run sebelumnya. Jadi folder runs/ itu sendiri jadi riwayat: berapa kali project
-ini pernah menjalankan pencarian hyperparameter, kapan, dan hasilnya apa -- tinggal
-lihat daftar foldernya.
+Each trial changes dropout, weight decay, hidden size, or learning rate, and is
+compared with the baseline configuration on validation accuracy and the
+train-validation gap. The test split is not used here.
 
-Tiap run berisi (per trial, 11x per run):
-    checkpoints/<nama_trial>.pt      bobot model di epoch val accuracy terbaik
-    logs/<nama_trial>/                TensorBoard event log (SAMA formatnya dengan
-                                       training utama trainer.py) -- lihat dengan:
-                                       tensorboard --logdir Training/Output/hyperparameter_search/runs/<timestamp>/logs
-    history/<nama_trial>.json         array lengkap per-epoch (train/val loss & acc, lr)
-    search_results.json               ringkasan SEMUA trial di run itu (buat ranking cepat)
+Every run is written to its own folder,
+Training/Output/hyperparameter_search/runs/<YYYYMMDD_HHMMSS>/:
+    checkpoints/<trial>.pt      weights at the best validation epoch
+    logs/<trial>/               TensorBoard logs
+    history/<trial>.json        per-epoch loss, accuracy, and LR
+    search_results.json         summary of all trials
+    search_summary_table.csv    same summary as CSV
+    search_comparison_chart.png validation accuracy per trial
 
-Di akhir run, generate_search_report() juga menyimpan (supaya tidak perlu buka TensorBoard
-untuk laporan/thesis -- cukup lihat file statis ini):
-    search_summary_table.csv          tabel ringkasan (sama isinya dengan search_results.json,
-                                       format CSV siap ditempel ke Word/Excel)
-    search_comparison_chart.png       bar chart val accuracy semua trial (diurutkan),
-                                       baseline ditandai beda warna
+The production checkpoint (cnnsa_bilstm_best.pt) is not modified. To adopt a
+trial, copy its checkpoint over cnnsa_bilstm_best.pt, then rerun evaluator.py
+and Export/Scripts/export_cnnsa_bilstm.py.
 
-Cara pakai:
-    Buka file ini di PyCharm (working directory = root project), klik Run.
-    Semua trial jalan berurutan dalam SATU proses -- tidak perlu dipencet satu-satu.
-    Checkpoint PRODUKSI (cnnsa_bilstm_best.pt) TIDAK disentuh.
-
-Setelah selesai:
-    1. Buka search_results.json di folder run yang baru -- berisi ranking tiap trial
-       (val accuracy terbaik, epoch tercapainya, train accuracy akhir, gap train-val,
-       path checkpoint).
-    2. Pilih trial dengan val accuracy TERTINGGI *dan* gap train-val yang masih wajar
-       (jangan pilih cuma karena val accuracy tertinggi kalau gap-nya jauh lebih besar
-       dari baseline -- itu tanda mulai overfit, bukan perbaikan asli).
-    3. Kalau ada trial yang lebih baik dari baseline: copy file checkpoint trial itu ke
-       Training/Output/cnnsa_bilstm/checkpoints/cnnsa_bilstm_best.pt (TIMPA yang lama --
-       backup dulu yang lama kalau mau jaga-jaga), lalu jalankan ulang
-       Training/CNNsaBiLSTM/Scripts/evaluator.py untuk lihat angka test-set resminya
-       (test set belum pernah dipakai sepanjang proses search ini -- baru dipakai SEKALI
-       di akhir untuk konfigurasi yang benar-benar terpilih, supaya tidak bias).
-    4. Kalau mau dipakai di aplikasi Android: jalankan ulang
-       Export/Scripts/export_cnnsa_bilstm.py (otomatis baca model_config dari checkpoint
-       yang baru), lalu copy manual cnnsa_bilstm.onnx yang baru ke
-       BISINDO_ANDROID_APP/app/src/main/assets/.
+Usage (from the repository root):
+    python Training/CNNsaBiLSTM/Scripts/hyperparameter_search.py
 """
 
 import sys
@@ -78,14 +49,12 @@ HISTORY_DIR = RUN_DIR / "history"
 RESULTS_PATH = RUN_DIR / "search_results.json"
 
 RANDOM_SEED = 42
-MAX_EPOCHS = 50          # dibatasi dari 100 (default produksi) supaya total waktu search wajar
-PATIENCE = 8             # sedikit lebih ketat dari 10 (default produksi), alasan sama
+MAX_EPOCHS = 50          # shorter than the main training (100) to keep the search affordable
+PATIENCE = 8             # main training uses 10
 NUM_CLASSES = BASE_MODEL_CONFIG["num_classes"]
 INPUT_SIZE = BASE_MODEL_CONFIG["input_size"]
 
-# --- Grid trial: dipilih manual (bukan full cartesian product) supaya jumlah trial
-# tetap wajar (~11x), tiap trial punya alasan regularisasi yang jelas. Trial 0 adalah
-# baseline (konfigurasi produksi saat ini) sebagai titik pembanding.
+# Hand-picked trials instead of a full grid. The first trial is the baseline.
 TRIALS = [
     {"name": "baseline",              "dropout": 0.3, "weight_decay": 1e-4, "hidden_size": 256, "learning_rate": 1e-3},
     {"name": "dropout_0.4",           "dropout": 0.4, "weight_decay": 1e-4, "hidden_size": 256, "learning_rate": 1e-3},
@@ -133,7 +102,7 @@ def run_trial(trial_cfg: dict, device: torch.device, train_ds, val_ds) -> dict:
     checkpoint_path = CHECKPOINT_DIR / f"{trial_cfg['name']}.pt"
     history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [], "lr": []}
 
-    print(f"\n{'='*70}\n[Trial] {trial_cfg['name']} -- {trial_cfg}\n{'='*70}")
+    print(f"\n{'='*70}\n[Trial] {trial_cfg['name']}: {trial_cfg}\n{'='*70}")
     t0 = time.time()
 
     for epoch in range(1, MAX_EPOCHS + 1):
@@ -208,7 +177,7 @@ def run_trial(trial_cfg: dict, device: torch.device, train_ds, val_ds) -> dict:
             patience_counter += 1
 
         if patience_counter >= PATIENCE:
-            print(f"  Early stopping pada epoch {epoch} (patience {PATIENCE})")
+            print(f"  Early stopping at epoch {epoch} (patience {PATIENCE})")
             break
 
     writer.close()
@@ -217,9 +186,9 @@ def run_trial(trial_cfg: dict, device: torch.device, train_ds, val_ds) -> dict:
 
     elapsed = time.time() - t0
     gap = best_train_acc_at_best - best_val_acc
-    print(f"[Trial] {trial_cfg['name']} selesai dalam {elapsed:.1f}s -- "
+    print(f"[Trial] {trial_cfg['name']} finished in {elapsed:.1f}s, "
           f"best val_acc={best_val_acc*100:.2f}% @ epoch {best_epoch}, "
-          f"train_acc={best_train_acc_at_best*100:.2f}%, gap={gap*100:.2f} poin")
+          f"train_acc={best_train_acc_at_best*100:.2f}%, gap={gap*100:.2f} points")
 
     return {
         "name": trial_cfg["name"],
@@ -237,14 +206,11 @@ def run_trial(trial_cfg: dict, device: torch.device, train_ds, val_ds) -> dict:
 
 
 def generate_search_report(run_dir: Path, results: list[dict]) -> None:
-    """Simpan tabel ringkasan (CSV) + bar chart val accuracy semua trial ke run_dir.
-    Bisa dipanggil dari main() di akhir run BARU, atau standalone terhadap search_results.json
-    dari run LAMA (lihat backfill_report() di bawah) -- tidak butuh training ulang."""
+    """Write the CSV summary and the validation accuracy chart of all trials to run_dir."""
     import csv
 
     results_sorted = sorted(results, key=lambda r: r["best_val_acc"], reverse=True)
 
-    # --- tabular: CSV ---
     csv_path = run_dir / "search_summary_table.csv"
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -257,13 +223,12 @@ def generate_search_report(run_dir: Path, results: list[dict]) -> None:
                 round(r["best_val_acc"] * 100, 2), round(r["train_acc_at_best"] * 100, 2),
                 round((r["train_acc_at_best"] - r["best_val_acc"]) * 100, 2), r["best_epoch"],
             ])
-    print(f"[HyperparameterSearch] Tabel ringkasan disimpan ke: {csv_path}")
+    print(f"[HyperparameterSearch] Summary table saved to: {csv_path}")
 
-    # --- visual: bar chart val accuracy per trial ---
     try:
         import matplotlib.pyplot as plt
     except ImportError:
-        print("  [WARN] matplotlib tidak terinstall, skip chart.")
+        print("  [WARN] matplotlib is not installed, skipping the chart.")
         return
 
     names = [r["name"] for r in results_sorted]
@@ -280,24 +245,22 @@ def generate_search_report(run_dir: Path, results: list[dict]) -> None:
     ax.set_xticklabels(names, rotation=40, ha="right")
     ax.set_ylabel("Best Validation Accuracy (%)")
     ax.set_ylim(min(val_accs) - 3, max(val_accs) + 3)
-    ax.set_title("Hyperparameter Search -- CNNsa-BiLSTM (11 trial, diurutkan)")
+    ax.set_title("CNNsa-BiLSTM hyperparameter search (11 trials, sorted)")
     ax.grid(axis="y", alpha=0.3)
 
     import matplotlib.patches as mpatches
-    ax.legend(handles=[mpatches.Patch(color="#d62728", label="baseline (konfigurasi produksi lama)"),
-                        mpatches.Patch(color="#1f77b4", label="trial variasi hyperparameter")])
+    ax.legend(handles=[mpatches.Patch(color="#d62728", label="baseline"),
+                        mpatches.Patch(color="#1f77b4", label="hyperparameter trial")])
     fig.tight_layout()
 
     chart_path = run_dir / "search_comparison_chart.png"
     fig.savefig(chart_path, dpi=150)
     plt.close(fig)
-    print(f"[HyperparameterSearch] Chart perbandingan trial disimpan ke: {chart_path}")
+    print(f"[HyperparameterSearch] Trial chart saved to: {chart_path}")
 
 
 def backfill_report_from_existing_run(run_dir: Path) -> None:
-    """Generate search_summary_table.csv + search_comparison_chart.png dari search_results.json
-    yang SUDAH ADA di run_dir, TANPA training ulang. Dipakai untuk run lama yang belum punya
-    laporan visual (mis. dibuat sebelum generate_search_report() ada)."""
+    """Rebuild the CSV and chart of an earlier run from its search_results.json, without training."""
     results_path = run_dir / "search_results.json"
     with open(results_path) as f:
         data = json.load(f)
@@ -314,8 +277,8 @@ def main():
     print(f"[HyperparameterSearch] Run ID  : {RUN_ID}")
     print(f"[HyperparameterSearch] Run dir : {RUN_DIR}")
     print(f"[HyperparameterSearch] Device  : {device}")
-    print(f"[HyperparameterSearch] {len(TRIALS)} trial akan dijalankan berurutan.")
-    print(f"[HyperparameterSearch] Checkpoint produksi (cnnsa_bilstm_best.pt) TIDAK disentuh.")
+    print(f"[HyperparameterSearch] Running {len(TRIALS)} trials in sequence.")
+    print(f"[HyperparameterSearch] The production checkpoint (cnnsa_bilstm_best.pt) is not modified.")
 
     train_ds = KeypointDataset(TRAIN_NPZ)
     val_ds = KeypointDataset(VAL_NPZ)
@@ -325,13 +288,12 @@ def main():
     for trial_cfg in TRIALS:
         result = run_trial(trial_cfg, device, train_ds, val_ds)
         results.append(result)
-        # Simpan progresif setelah tiap trial -- kalau proses terhenti di tengah jalan,
-        # hasil trial yang sudah selesai tidak hilang.
+        # Save after every trial so finished trials survive an interrupted run
         with open(RESULTS_PATH, "w") as f:
             json.dump({"run_id": RUN_ID, "trials": results}, f, indent=2)
 
     results_sorted = sorted(results, key=lambda r: r["best_val_acc"], reverse=True)
-    print(f"\n{'='*70}\n[HyperparameterSearch] RINGKASAN run {RUN_ID} (urut val accuracy tertinggi)\n{'='*70}")
+    print(f"\n{'='*70}\n[HyperparameterSearch] Run {RUN_ID}, sorted by validation accuracy\n{'='*70}")
     print(f"{'Trial':<22} {'Val Acc':>9} {'Train Acc':>10} {'Gap':>7} {'Epoch':>6}")
     for r in results_sorted:
         print(f"{r['name']:<22} {r['best_val_acc']*100:8.2f}% {r['train_acc_at_best']*100:9.2f}% "
@@ -339,14 +301,12 @@ def main():
 
     generate_search_report(RUN_DIR, results)
 
-    print(f"\nHasil lengkap  : {RESULTS_PATH}")
+    print(f"\nResults        : {RESULTS_PATH}")
     print(f"Checkpoint     : {CHECKPOINT_DIR}")
     print(f"History (JSON) : {HISTORY_DIR}")
     print(f"TensorBoard    : tensorboard --logdir \"{LOG_DIR}\"")
-    print(f"\nSemua run tersimpan terpisah di {SEARCH_ROOT_DIR / 'runs'} -- riwayat berapa kali")
-    print("search pernah dijalankan bisa dilihat dari daftar folder di situ.")
-    print("\nIngat: checkpoint produksi (Training/Output/cnnsa_bilstm/checkpoints/cnnsa_bilstm_best.pt)")
-    print("belum berubah. Baca instruksi promosi manual di docstring atas file ini.")
+    print("\nThe production checkpoint (Training/Output/cnnsa_bilstm/checkpoints/cnnsa_bilstm_best.pt)")
+    print("is unchanged. See the module docstring for how to adopt a trial.")
 
 
 if __name__ == "__main__":

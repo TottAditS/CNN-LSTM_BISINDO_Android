@@ -1,16 +1,9 @@
 """
-FeatureExtraction/Scripts/keypoint_extractor.py
+Hand keypoint extraction with MediaPipe Hands.
 
-Step 1: Ekstraksi 21 keypoint per tangan menggunakan MediaPipe Hands.
-- Input : frames .npy per video (output PreProcessing)
-- Output: keypoint .npy per video, shape (T, 126)
-           T   = jumlah frame
-           126 = 2 tangan x 21 keypoint x 3 coords (x, y, z)
-
-MediaPipe handle segalanya secara internal:
-  1. Palm Detector -> temukan area tangan di frame
-  2. Hand Landmark -> ekstrak 21 keypoint dari area itu
-Tidak perlu preprocessing segmentasi tambahan.
+Input : frames.npy per video (PreProcessing output)
+Output: keypoints .npy per video, shape (T, 126)
+        126 = 2 hands x 21 landmarks x 3 coordinates (x, y, z)
 """
 
 import sys
@@ -35,21 +28,20 @@ from FeatureExtraction.Config.feature_config import (
 mp_hands = mp.solutions.hands
 
 WRIST_IDX = 0
-MCP_IDX   = 9  # Middle finger MCP -- untuk skala hand size
+MCP_IDX   = 9  # middle finger MCP, used for the hand-size scale
 
 
 class KeypointExtractor:
     """
-    Ekstrak 21 hand landmark per tangan per frame menggunakan MediaPipe.
+    Extracts 21 landmarks per hand per frame.
 
-    Output shape per video: (T, 126)
-        - Tangan kiri  : index [0:63]
-        - Tangan kanan : index [63:126]
-        - Tangan tidak terdeteksi -> zeros
+    Layout per frame (126 values):
+        left hand  : [0:63]
+        right hand : [63:126]
+        a hand that is not detected stays zero
 
-    Normalisasi (jika NORMALIZE_KEYPOINTS=True):
-        - Kurangi koordinat wrist -> posisi relatif ke wrist
-        - Bagi dengan jarak wrist->MCP9 -> scale invariant
+    With NORMALIZE_KEYPOINTS, each hand is shifted so the wrist is the origin and
+    divided by the wrist-to-MCP9 distance.
     """
 
     def __init__(self):
@@ -60,7 +52,7 @@ class KeypointExtractor:
             min_tracking_confidence=MP_MIN_TRACKING_CONFIDENCE,
         )
         if VERBOSE:
-            print(f"[KeypointExtractor] MediaPipe Hands siap.")
+            print(f"[KeypointExtractor] MediaPipe Hands ready.")
             print(f"  max_num_hands      : {MP_MAX_NUM_HANDS}")
             print(f"  detection_conf     : {MP_MIN_DETECTION_CONFIDENCE}")
             print(f"  tracking_conf      : {MP_MIN_TRACKING_CONFIDENCE}")
@@ -77,10 +69,7 @@ class KeypointExtractor:
         return kpts
 
     def _normalize(self, kpts: np.ndarray) -> np.ndarray:
-        """
-        Normalisasi keypoint relatif ke wrist dan skala tangan.
-        Hasil: koordinat dalam frame referensi tangan itu sendiri.
-        """
+        """Express one hand relative to its wrist, scaled by hand size."""
         if not NORMALIZE_KEYPOINTS:
             return kpts
 
@@ -95,10 +84,7 @@ class KeypointExtractor:
         return kpts.flatten()
 
     def extract_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
-        """
-        Ekstrak keypoint dari satu frame BGR.
-        Returns: (126,) float32 -- zeros jika tidak terdeteksi.
-        """
+        """Keypoints of one BGR frame as (126,) float32, zeros if no hand is found."""
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         results   = self.hands.process(frame_rgb)
 
@@ -110,7 +96,7 @@ class KeypointExtractor:
         for hand_lm, hand_info in zip(
             results.multi_hand_landmarks, results.multi_handedness
         ):
-            label = hand_info.classification[0].label  # "Left" atau "Right"
+            label = hand_info.classification[0].label  # "Left" or "Right"
             kpts  = self._landmarks_to_array(hand_lm)
             kpts  = self._normalize(kpts)
 
@@ -121,7 +107,7 @@ class KeypointExtractor:
 
     def extract_sequence(self, frames: np.ndarray) -> np.ndarray:
         """
-        Ekstrak keypoint dari sequence frame satu video.
+        Keypoints of every frame of one video.
 
         Args:
             frames: (T, H, W, 3) uint8 RGB
@@ -139,13 +125,13 @@ class KeypointExtractor:
         return keypoints
 
     def process_all(self, skip_existing: bool = True):
-        """Proses semua video secara dinamis menggunakan frame_manifest.json."""
+        """Extract keypoints for every video listed in frame_manifest.json."""
         create_output_dirs()
 
         manifest_path = PROCESSED_DIR / "frame_manifest.json"
         if not manifest_path.exists():
-            print(f"[KeypointExtractor] ERROR: Manifest tidak ditemukan di {manifest_path}")
-            print("Pastikan PreProcessing/PreProcess.ipynb sudah dijalankan terlebih dahulu.")
+            print(f"[KeypointExtractor] ERROR: manifest not found at {manifest_path}")
+            print("Run PreProcessing/PreProcess.ipynb first.")
             return
 
         with open(manifest_path, "r") as f:
@@ -157,7 +143,7 @@ class KeypointExtractor:
         errors    = 0
         low_detect = 0
 
-        iterator = tqdm(manifest, desc="Ekstraksi keypoint", unit="video")
+        iterator = tqdm(manifest, desc="Keypoint extraction", unit="video")
 
         for item in iterator:
             signer_id = item["signer_idx"]
@@ -174,7 +160,7 @@ class KeypointExtractor:
             frame_npy = Path(item["frames_npy"])
             if not frame_npy.exists():
                 if VERBOSE:
-                    print(f"  [SKIP] Frame tidak ada: {frame_npy}")
+                    print(f"  [SKIP] Missing frames: {frame_npy}")
                 errors += 1
                 continue
 
@@ -182,14 +168,13 @@ class KeypointExtractor:
                 frames    = np.load(frame_npy)      # (T, H, W, 3)
                 keypoints = self.extract_sequence(frames)
 
-                # Cek kualitas deteksi
                 detected = np.any(keypoints != 0, axis=1).sum()
                 rate     = detected / len(keypoints)
                 if rate < 0.5:
                     low_detect += 1
                     if VERBOSE:
-                        print(f"  [WARN] {vid_name}: deteksi rendah "
-                              f"({rate*100:.0f}% frame)")
+                        print(f"  [WARN] {vid_name}: low detection rate "
+                              f"({rate*100:.0f}% of frames)")
 
                 np.save(kpt_path, keypoints)
                 processed += 1
@@ -198,15 +183,14 @@ class KeypointExtractor:
                 print(f"  [ERROR] {vid_name}: {e}")
                 errors += 1
 
-        # Tidak close() di sini -- extractor ini instance milik caller (notebook/script
-        # lain manggil extractor.close() sendiri setelah process_all() selesai). Double
-        # close() akan raise ValueError dari mediapipe ("_graph which is already None").
+        # The caller owns this extractor and calls close() itself; closing twice
+        # raises a ValueError inside MediaPipe.
 
-        print(f"\n[KeypointExtractor] Selesai:")
-        print(f"  Diproses   : {processed}")
-        print(f"  Dilewati   : {skipped}")
-        print(f"  Error      : {errors}")
-        print(f"  Low detect : {low_detect} video (< 50% frame terdeteksi)")
+        print(f"\n[KeypointExtractor] Done:")
+        print(f"  Processed  : {processed}")
+        print(f"  Skipped    : {skipped}")
+        print(f"  Errors     : {errors}")
+        print(f"  Low detect : {low_detect} videos (< 50% of frames detected)")
         print(f"  Output     : {KEYPOINT_DIR}")
 
     def close(self):
