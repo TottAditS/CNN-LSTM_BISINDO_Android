@@ -98,6 +98,8 @@ Export/
   Scripts/validate_onnx.py
   ExportModels.ipynb
 AndroidEvaluation/                  per-attempt logs exported by the Android app
+  make_figures.py                    renders Fig. 2-4 of the paper into AndroidEvaluation/charts/
+  per_class_results.py               per-class accuracy and top confusions of both models on a phone
 Requirements.txt
 ```
 
@@ -209,6 +211,16 @@ The Android app exports one row per recording attempt.
 Columns: attempt number, target class, timestamp, raw and used frame counts, and for each model
 the predicted label, confidence, inference latency (ms), process CPU usage (%), application
 memory (PSS, KB), and whether the prediction was correct.
+
+`AndroidEvaluation/make_figures.py` renders Fig. 2-4 of the paper (Indonesian and English) from
+these logs and from the desktop metrics in `Training/Output/results/`:
+
+```
+python AndroidEvaluation/make_figures.py
+```
+
+`AndroidEvaluation/per_class_results.py` prints the per-class accuracy and the most frequent
+confusions of both models for one log (the Poco M4 Pro log by default).
 
 ## Classes
 
